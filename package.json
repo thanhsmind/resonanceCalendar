@@ -1,0 +1,73 @@
+{
+  "name": "quireink",
+  "version": "2.2.15",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "engines": {
+    "bun": ">=1.3"
+  },
+  "scripts": {
+    "dev": "bun run build:assets && bun --watch src/index.ts",
+    "start": "bun --smol src/index.ts",
+    "build": "bun run build:assets && bun run build:admin",
+    "build:assets": "bun scripts/build-assets.ts",
+    "build:admin": "bun scripts/build-admin.ts",
+    "test": "bun run build:assets && bun test",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/assets/js && tsc --noEmit -p src/admin",
+    "check:filesize": "bun scripts/checks/file-size.ts",
+    "check:all": "bun run build:assets && bun run build:admin && bun run typecheck && bun run check:filesize && bun run check:css && bun run check:nul && bun run check:routes && bun run check:type && bun run check:admin-kit && bun run check:bundle && bun run check:contract && bun run check:docs && bun run check:motion && bun run check:i18n && bun run check:deps && bun run check:admin-css && bun run check:admin-wired && bun test",
+    "check:css": "bun scripts/checks/css-literal.ts",
+    "check:nul": "bun scripts/checks/no-nul.ts",
+    "check:routes": "bun scripts/checks/routes-guarded.ts",
+    "check:contract": "bun scripts/checks/appearance-contract.ts",
+    "check:docs": "bun scripts/checks/docs.ts",
+    "check:deps": "bun scripts/checks/deps.ts",
+    "check:admin-wired": "bun scripts/checks/admin-wired.ts",
+    "check:admin-css": "bun scripts/checks/admin-css.ts",
+    "check:i18n": "bun scripts/checks/i18n-typography.ts",
+    "check:type": "bun scripts/checks/type-roles.ts",
+    "check:admin-kit": "bun scripts/checks/admin-kit.ts",
+    "check:bundle": "bun scripts/checks/admin-bundle.ts",
+    "user": "bun scripts/user.ts",
+    "shot": "bun scripts/shot.ts",
+    "drive": "bun scripts/drive.ts",
+    "tour": "scripts/ops/tour.sh",
+    "restore-check": "bun scripts/restore-check.ts",
+    "check:motion": "bun scripts/checks/motion-drift.ts"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.0",
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "fast-uri": "^3.1.6",
+    "hono": "^4.13.7",
+    "qs": "^6.16.0",
+    "prosemirror-view": "1.42.3",
+    "prosemirror-transform": "1.12.1",
+    "zod": "4.6.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "hono": "^4.13.7",
+    "prosemirror-commands": "^1.7.2",
+    "prosemirror-dropcursor": "^1.8.3",
+    "prosemirror-gapcursor": "^1.4.1",
+    "prosemirror-history": "^1.5.0",
+    "prosemirror-inputrules": "^1.5.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.11",
+    "prosemirror-schema-list": "^1.5.1",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-tables": "^1.8.5",
+    "prosemirror-transform": "^1.12.1",
+    "prosemirror-view": "^1.42.3",
+    "satori": "^0.29.1",
+    "sharp": "^0.35.4",
+    "shiki": "4.4.3",
+    "temml": "^0.13.5",
+    "zod": "^4.6.0"
+  }
+}

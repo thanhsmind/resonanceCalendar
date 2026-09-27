@@ -1,0 +1,291 @@
+// Rail geometry as CSS strings, injected at runtime because a media query can't read a
+// CSS variable — the breakpoint is COMPUTED from the reading-column width. Shared by the
+// blog layout (single left ToC rail, post/default width) and the listing sidebar (TWO
+// rails + a narrower column). Keep in sync with globals.css `.rail` base + `--rail-*`.
+//
+// The column width is exposed as `--shell-w` (the layout's shell reads it, falling back to
+// the owner's contentWidth). Listing pages set a narrower `--shell-w` AND emit the two-rail
+// rules; because those use the higher-specificity `.rail.rail-left` / `.rail.rail-right`
+// selectors, they win over the layout's single-rail `.rail` rules with no ordering games.
+
+// THE DIVIDERS SIT BEHIND (z-index:-1). Each is a pseudo-element of `.rail`, so it paints
+// AFTER the rail's own children — and a marker inside cannot climb over it, because
+// `.rail-inner` is position:sticky and therefore a stacking context that traps any
+// z-index below it. The IDE chrome's numbered rings sit ON this line, and without this
+// the hairline drew straight through every one of them. Same shape of bug as the feed's
+// spine over the month dots, same fix.
+export const RAIL_W = 250
+export const RAIL_GAP = 40
+export const RAIL_PAD = 14
+export const RAIL_BREATHING = 10 // clear space between a rail and the viewport edge
+
+/**
+ * The column width a fresh install has, and therefore the one geometry worth precomputing.
+ *
+ * `singleRailCss` was emitted inline on EVERY page view, and everything in it is a static
+ * string except the one breakpoint number, which is `colWidth + 600`. Measured 2026-09-16 by
+ * cutting the two `@media` blocks out of a real post and re-gzipping: 3,554 raw and 1,046
+ * compressed bytes, per view, the largest single item in the inline `<style>`. The hashed
+ * sheets are `max-age=31536000, immutable` and the HTML is not, so a byte moved from one to
+ * the other is paid once per deploy instead of once per page a reader has not seen.
+ *
+ * ⚠️ MUST EQUAL `DEFAULT_SETTINGS.contentWidth`. A second copy of a number is exactly how the
+ * default and the precomputed sheet drift apart, so `rail-css.test.ts` compares them.
+ */
+export const DEFAULT_RAIL_WIDTH = 672
+
+// Viewport width at which BOTH gutters can hold a rail (keeps the column centred).
+function breakpoint(colWidth: number): number {
+  return colWidth + 2 * (RAIL_W + RAIL_GAP + RAIL_BREATHING)
+}
+
+const DIVIDER = (RAIL_GAP - RAIL_PAD) / 2
+const GUTTER =
+  'position:absolute;inset:auto auto auto auto;top:var(--rail-top);width:var(--rail-w);' +
+  // visibility:visible undoes the closed-drawer rule in rail.css.ts: in the gutter the rail is
+  // always open, and without this the promoted rail would be invisible above the breakpoint.
+  'height:calc(100% - var(--rail-top));padding:0;background:none;border:0;overflow:visible;transform:none;display:block;visibility:visible'
+// ⚠️ TWO CEILINGS, and the second is the one a short page needs. The rail is as tall as the
+// column beside it; the viewport is not the limit on a tag page holding one post. Capped by the
+// viewport alone, the index ran on past the column and the footer landed in the middle of the
+// tag list (measured 2026-09-23 at 1440×900 on a one-post tag page). `100%` is the rail's own
+// height, which is definite because the rail is absolutely placed.
+const INNER =
+  '.rail-inner{max-height:min(calc(100dvh - 2.5rem - 1.5rem),100%);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}'
+
+// Single left-gutter rail (post ToC + the default). Text ranged RIGHT toward the column;
+// the freed right gutter lets a "large" image nose right by one rail width.
+export function singleRailCss(colWidth: number): string {
+  const at = breakpoint(colWidth)
+  return (
+    // THE BAND: from 60rem up to the rail breakpoint the rail is neither a drawer nor a
+    // gutter. Measured at 1024 (an iPad on its side) with the default 672px column the
+    // breakpoint is 1272, so a screen with 176px spare each side had no index at all and a
+    // menu button that opened a drawer over the article. Here the rail stands ABOVE the
+    // article as a band: the menu and the index as wrapped rows of words on a hairline, the
+    // index folding on its own heading (details/summary, article.ts) so a long one can be put
+    // away. The rail is the article's own child, after its header and before its body, so
+    // in flow it stands where a book prints its contents: under the title, above the first
+    // line. Nothing else about the page moves; above the breakpoint the gutter rules take over.
+    `@media (min-width:60rem) and (max-width:${at - 1}px){` +
+    `.rail-toc{position:static;width:auto;height:auto;margin:1.5rem 0 2.5rem;padding:0 0 1.25rem;` +
+    `border:0;border-bottom:1px solid var(--c-rule);background:none;transform:none;visibility:visible;` +
+    `overflow:visible;transition:none}` +
+    `.rail-toc .rail-inner{position:static;max-height:none;overflow:visible}` +
+    `.rail-toc .rail-inner > * + *{margin-top:1rem}` +
+    `.rail-toc h2{margin:0;padding-left:0}` +
+    // The site menu rides in the same band, and a bare row of links under a title reads as
+    // tags; it takes the label the nav already carries for the screen reader.
+    `.rail-toc .rail-inner > nav:not(.toc)::before{content:attr(aria-label);display:block;margin-bottom:.5rem;` +
+    `font-weight:var(--fw-heading,600);color:var(--c-heading);` +
+    `font-size:var(--fs-small);line-height:var(--lh-small);letter-spacing:var(--ls-small)}` +
+    `.rail-toc ul{display:flex;flex-wrap:wrap;gap:.4rem 1.5rem}` +
+    `.rail-toc li{margin-top:0}` +
+    // THE INDEX IS NOT A ROW OF WORDS. The menu is — five single words read fine wrapped on
+    // a hairline — but an index entry is a sentence, and two of them on one line are told
+    // apart by 24px of space and nothing else. Measured at 1180 on 2026-09-12: "Three
+    // separate cuts, and they compound" and "What the cuts are worth" shared a line, with
+    // the IDE chrome's section number sitting in the gap between them.
+    // `max-content` rather than a plain block, so each entry still hugs its own text: it
+    // keeps the current-row underline the width of the words, and keeps the gutter number
+    // beside the entry it counts instead of out at the column's edge.
+    `.toc ul{display:block}` +
+    `.toc li{width:max-content;max-width:100%;margin-top:.45rem}` +
+    `.toc li:first-child{margin-top:0}` +
+    `.rail-toc .rail-row{padding-left:0}` +
+    // Row marks turn with the rows: the current section's hairline goes under the word.
+    `.rail-toc .rail-row[aria-current]::after{left:0;right:0;top:auto;bottom:-4px;width:auto;height:2px}` +
+    `.toc-end{margin-top:0}` +
+    // The fold. A chevron drawn in border, from the meta ink, turning when open.
+    `.toc summary{pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:.5rem;` +
+    `margin-bottom:.6rem}` +
+    `.toc summary h2{margin:0}` +
+    `.toc summary::before{content:"";width:.4em;height:.4em;flex:none;` +
+    `border-right:1.5px solid var(--c-meta);border-bottom:1.5px solid var(--c-meta);` +
+    `transform:rotate(-45deg);transition:transform var(--dur-base) ease}` +
+    `.toc details[open] > summary::before{transform:rotate(45deg)}` +
+    `}` +
+    `@media (min-width:${at}px){` +
+    `.rail{${GUTTER};right:calc(100% + var(--rail-gap));left:auto;text-align:right}` +
+    `.rail::after{content:"";position:absolute;top:0;bottom:0;right:-${DIVIDER}px;width:1px;background:var(--c-rule);z-index:-1}` +
+    INNER +
+    `.rail h2,.rail .rail-tags{padding-left:0;padding-right:var(--rail-pad)}` +
+    `.rail .rail-tags{justify-content:flex-end}` +
+    `.rail li a{justify-content:flex-end}` +
+    `.rail-row{padding-left:0;padding-right:var(--rail-pad)}` +
+    `.rail-row[aria-current]::after{left:auto;right:0}` +
+    `.rail-toggle,.rail-scrim{display:none}` +
+    // The post info panel takes the right gutter: the date, the length, the way into book
+    // mode and the taxonomy, one fact per line. It is NOT sticky and its inner box does not
+    // scroll — it stands at the top of the article and leaves with it. A sticky panel would
+    // ride down the gutter and sit on top of the wide images below, which nose out into
+    // that same gutter by one rail width (the rule right underneath this one).
+    `.post-info{${GUTTER};left:calc(100% + var(--rail-gap));right:auto;text-align:left;` +
+    `padding-left:var(--rail-pad);height:auto}` +
+    `.post-info::after{content:"";position:absolute;top:0;bottom:0;left:-${DIVIDER}px;width:1px;background:var(--c-rule);z-index:-1}` +
+    // A node ON that divider, level with the panel's first line. The hairline is --c-rule,
+    // which measures 1.16:1 against the page and all but disappears over a run this short;
+    // the feed's timeline answers exactly that with a dot, so both gutters now speak the
+    // same language. Centred on the 1px line: half the dot back from the line's own centre.
+    `.post-info::before{content:"";position:absolute;left:-${DIVIDER + 3}px;top:.5em;` +
+    `width:7px;height:7px;border-radius:50%;background:var(--c-meta)}` +
+    // A SECOND node on the same divider, level with the action row. The panel is a column of
+    // facts and then one row that DOES something, and it is already set apart by space alone;
+    // the dot is what says the gap is deliberate rather than a rhythm that slipped.
+    //
+    // ::after, NOT ::before: the IDE chrome puts its `//` marker on this row's ::before, and
+    // two marks fighting over one pseudo-element is a bug this project has already shipped
+    // once, on the rail rows. The offset carries `--rail-pad` because this dot is positioned
+    // against the ROW, which starts at the panel's content edge, where the panel's own dot is
+    // positioned against the panel and starts at its padding edge.
+    `.post-info .info-action{position:relative}` +
+    `.post-info .info-action::after{content:"";position:absolute;` +
+    `left:calc(-${DIVIDER + 3}px - var(--rail-pad));top:.5em;` +
+    `width:7px;height:7px;border-radius:50%;background:var(--c-meta)}` +
+    // Exactly one copy of these facts has a box at any width. Below this breakpoint there is
+    // no gutter, the panel is display:none, and the meta line above the title plus the
+    // taxonomy over its rule are what the reader gets, unchanged.
+    `.post-meta,.taxo-rule,.post-taxo{display:none}` +
+    // ...and with the meta line gone, the title's 8px top margin is spacing it away from
+    // nothing. That was the three columns not lining up: both rails start their first line
+    // at the same y and the title sat 8px below them. Measured, then re-measured.
+    `article > header .mt-2{margin-top:0}` +
+    // A "wide" image or video noses right into the freed gutter by one rail width.
+    `.prose figure.img-wide,.prose .video-wide{width:calc(100% + var(--rail-w) + var(--rail-gap));max-width:none;margin-left:0;` +
+    `margin-right:calc(-1 * (var(--rail-w) + var(--rail-gap)))}` +
+    // ...except in the first two blocks, which are level with the info panel. The gutter
+    // cannot hold both, and a photograph with "Tags: [x]" printed across it is the worse of
+    // the two failures. MEASURED, not guessed: a post opening on a #wide image put the
+    // panel's last two rows inside the picture. Two blocks rather than one because the
+    // panel is up to six rows and the header is only the h1 when the deck is switched off,
+    // which puts the SECOND block level with it too.
+    `.prose > :is(figure.img-wide,.video-wide):nth-child(-n+2){width:100%;margin-right:0}}`
+  )
+}
+
+/**
+ * The article's band puts the drawer button away; a listing's does not, and that is the
+ * whole difference between them.
+ *
+ * Between 60rem and the gutter breakpoint an ARTICLE lays its rail out in flow, under the
+ * title (`singleRailCss`), so the button would open a drawer that is already on the page.
+ * A LISTING writes its rail last inside <main>, because above the breakpoint the rail is
+ * absolutely placed and the heading should lead the document; laid out in flow that same
+ * markup lands the menu, the categories and the tags at the FOOT of the page. Measured at
+ * 1180px on 2026-09-16: the rail began at y=2729 on a 3601px page, with the button hidden,
+ * so nothing in it could be reached without scrolling past every post. So a listing keeps
+ * the drawer it uses on a phone, and the button that opens it, right up to the breakpoint.
+ *
+ * Emitted by the article shell rather than baked into the cached sheet, because the sheet
+ * is shared by every page and cannot tell one from the other.
+ */
+export function articleBandCss(colWidth: number): string {
+  return `@media (min-width:60rem) and (max-width:${breakpoint(colWidth) - 1}px)` +
+    `{.rail-toggle,.rail-scrim{display:none}}`
+}
+
+// Infinite-scroll timeline. NOT a boxed rail: a spine runs the full height of the feed in
+// the RIGHT gutter, and each year's marker is absolutely positioned beside the FIRST post
+// of that year — so the years line up with the posts on the left and the whole thing scrolls
+// with the page, with no JS and no measurement (the marker flows with its card). Desktop
+// only: below the breakpoint there is no gutter, so markers + spine are hidden.
+export function timelineCss(colWidth: number): string {
+  // A short date label needs far less gutter than a full 250px rail, so the timeline
+  // appears at a MUCH lower width than the sidebar breakpoint — a right gutter wide enough
+  // for the gap + a "September"/"Tháng 12" label (~130px), so it shows on normal laptops.
+  const at = colWidth + 2 * (RAIL_GAP + 130)
+  return (
+    `.tl-mark,.tl-year{display:none}` +
+    `@media (min-width:${at}px){` +
+    // Spine: a hairline down the right gutter, exactly as tall as the post list — the same
+    // faint `--c-rule` as the sidebar dividers. The dots + year give it presence.
+    //
+    // BEHIND everything, and it has to be said explicitly. The spine is a pseudo-element of
+    // the LIST, so it paints after the list's children — and a month marker cannot climb over
+    // it with z-index, because `.reveal` runs a card-in animation on each `article`, which
+    // makes the article a stacking context and traps the marker's z-index inside it. So the
+    // hairline ran straight through every month dot, cutting it in half. Measured 2026-07-29.
+    `.post-list{position:relative}` +
+    `.post-list::after{content:"";position:absolute;top:0;bottom:0;left:calc(100% + var(--rail-gap) + 4px);width:1px;background:var(--c-rule);z-index:-1}` +
+    // Month marker: a child of a month's first card, anchored to the card top out in the gutter.
+    `.post-list article{position:relative}` +
+    `.post-list article .tl-mark{display:flex;position:absolute;top:0;left:calc(100% + var(--rail-gap));width:max-content;max-width:var(--rail-w)}` +
+    // Year header: STICKY. A 0-size positioning anchor in the gutter (reserves no space); the
+    // visible `.tl-year-tag` hangs from it, pinned to the top while its year's posts scroll, then
+    // the next year's group pushes it out. z-index above the month markers so its bg masks them.
+    // top:2.5rem matches the left sidebar's sticky offset (`.rail-inner`), so the pinned year
+    // lines up with the left rail's first line.
+    `.tl-year{display:block;position:sticky;top:2.5rem;height:0;width:0;margin-left:calc(100% + var(--rail-gap));z-index:2}` +
+    `.tl-year-tag{display:flex;position:absolute;top:-0.1em;left:0}` +
+    // Grid view is an alternate layout (cards in 2 columns) — the gutter timeline can't align, so drop it.
+    `html[data-list=grid] .post-list::after,html[data-list=grid] .tl-mark,html[data-list=grid] .tl-year{display:none}}`
+  )
+}
+
+// Grid mode for a listing page (header toggle → <html data-list=grid>) needs no extra CSS:
+// the base 1/2-column grid (globals.css) applies at every width, in-column, so the grid keeps
+// the same reading-column width as the list and caps at 2 columns. No gutter widening, no
+// 3-column desktop layout, no rail hiding.
+
+// Two rails for listing pages: LEFT (discovery, ranged right toward the column) + RIGHT
+// (nav, mirrored: ranged left toward the column, divider + marker on the left). Also sets
+// the narrower `--shell-w` and hides the drawer-only duplicate above the breakpoint.
+export function listingRailCss(colWidth: number): string {
+  const at = breakpoint(colWidth)
+  return (
+    `:root{--shell-w:${colWidth}px}` +
+    `@media (min-width:${at}px){` +
+    // Left rail — discovery.
+    `.rail.rail-left{${GUTTER};right:calc(100% + var(--rail-gap));left:auto;text-align:right}` +
+    `.rail.rail-left::after{content:"";position:absolute;top:0;bottom:0;right:-${DIVIDER}px;width:1px;background:var(--c-rule);z-index:-1}` +
+    `.rail.rail-left h2,.rail.rail-left .rail-tags{padding-left:0;padding-right:var(--rail-pad)}` +
+    `.rail.rail-left .rail-tags{justify-content:flex-end}` +
+    `.rail.rail-left li a{justify-content:flex-end}` +
+    `.rail.rail-left .rail-row{padding-left:0;padding-right:var(--rail-pad)}` +
+    `.rail.rail-left .rail-row[aria-current]::after{left:auto;right:0}` +
+    // Right rail — nav, mirrored.
+    `.rail.rail-right{${GUTTER};left:calc(100% + var(--rail-gap));right:auto;text-align:left}` +
+    `.rail.rail-right::after{content:"";position:absolute;top:0;bottom:0;left:-${DIVIDER}px;width:1px;background:var(--c-rule);z-index:-1}` +
+    `.rail.rail-right h2,.rail.rail-right .rail-tags{padding-right:0;padding-left:var(--rail-pad)}` +
+    `.rail.rail-right .rail-tags{justify-content:flex-start}` +
+    `.rail.rail-right li a{justify-content:flex-start}` +
+    `.rail.rail-right .rail-row{padding-right:0;padding-left:var(--rail-pad)}` +
+    `.rail.rail-right .rail-row[aria-current]::after{right:auto;left:0}` +
+    INNER +
+    `.drawer-only{display:none}` +
+    `.rail-toggle,.rail-scrim{display:none}}`
+  )
+}
+
+/**
+ * The source-code look's two corrections to the rail BAND, and only that look's.
+ *
+ * They lived inside `singleRailCss`, which meant every blog on earth downloaded two
+ * `html[data-look=code]` rules on every page view whatever it was wearing. `looks.test.ts`
+ * holds that a look ships as its own sheet and the common sheet carries none of it; it never
+ * saw these, because it reads `PUBLIC_CSS` and these were inline. Moving the geometry into the
+ * cached sheet on 2026-09-16 is what made the assertion reach them.
+ *
+ * They cannot go in `look-code.css.ts` with the rest of the dialect: both sit inside the band's
+ * media query, whose upper bound is computed from the reading column, and a static sheet has no
+ * width to compute it from. So they stay here, beside the band that creates them, and are asked
+ * for by the one look that wants them.
+ */
+export function railLookCss(colWidth: number, look: string): string {
+  if (look !== 'code') return ''
+  const at = breakpoint(colWidth)
+  return `@media (min-width:60rem) and (max-width:${at - 1}px){`
+    // The band's menu heading needs the marker every other chrome label carries, and it cannot
+    // get it from `ide.css.ts` the way they do: that sheet marks `.rail h2::before`, this
+    // heading is not an h2, and its own ::before is already spoken for by the label. Without
+    // this line the menu's heading stood bare directly above a marked "// Contents": two
+    // chrome headings, one screen, two registers (measured at 1180 on 2026-09-12).
+    + `html[data-look=code] .rail-inner > nav:not(.toc)::before{content:"// " attr(aria-label)}`
+    // AND NO LINE NUMBERS ON THE MENU HERE. In the gutter they stand in a column of their own
+    // out past the text, which is what a line number is. In this band there is no gutter: the
+    // ring lands INSIDE the 24px between two menu words, three pixels from each, and the row
+    // reads as one run-on string. The index below keeps its numbers, because there each entry
+    // is a line of its own and the number falls at the end of it.
+    + `html[data-look=code] .rail-inner > nav:not(.toc) li::before{content:none}`
+    + `}`
+}

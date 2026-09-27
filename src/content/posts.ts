@@ -1,0 +1,348 @@
+// Posts: metadata columns + markdown body in the SQLite `posts` table. Categories and
+// tags live in `post_terms` (see post-terms.ts). Image refs (body + featuredImage) stored
+// store-relative, re-expanded to absolute URLs on read.
+
+import type { Post, PostWithContent } from '@/types'
+import { collapseBlob, expandBlob } from '@/media/blob'
+import { slugify, deriveExcerpt, clampExcerpt, isPublicallyVisible, readingMinutes } from '@/utils'
+import { slugFromWords } from '@/content/untitled'
+import { accentedWords, keepsAccents } from '@/accent'
+import { ensureSlugFree } from '@/content/slugs'
+import { pushRevision, renameRevisions } from '@/content/revisions'
+import { renameComments } from '@/comments/comments'
+import { saveRedirect, clearRedirectForPath } from '@/server/redirects'
+import { getSettings } from '@/content/settings'
+import { writeExcerpt } from '@/content/ai-excerpt'
+import { writeTerms, updateTermRows, type TermKind } from '@/content/post-terms'
+import { META_COLS, asLang, rowToMeta, type PostRow } from '@/content/post-row'
+import { all, one, run, tx } from '@/store/query'
+import { liveOnly, nowMs, fromIso } from '@/store/db'
+import { clearAutosave } from '@/content/autosave'
+import { renameSends } from '@/news/newsletter-log'
+
+export type { TermKind }
+// The trash half moved into its own file when this one reached its ceiling. Re-exported so no
+// call site has to know where it went.
+export {
+  deletePost, restorePost, purgePost, getTrashedPosts, emptyPostsTrash,
+} from '@/content/posts-trash'
+
+
+// Stable projection of meaningful fields — to decide whether a save changed
+// anything (so a no-op autosave skips a revision).
+function projection(p: PostWithContent): string {
+  return JSON.stringify({
+    title: p.title,
+    date: p.date,
+    status: p.status,
+    categories: p.categories,
+    tags: p.tags,
+    series: p.series ?? '',
+    seriesOrder: p.seriesOrder ?? 0,
+    metaTitle: p.metaTitle ?? '',
+    metaDescription: p.metaDescription ?? '',
+    coverImage: p.coverImage ? collapseBlob(p.coverImage) : '',
+    // The LANGUAGE is part of the page a reader gets — it sets `<html lang>`, the hyphenation
+    // and the quote marks — so changing it is a change worth a snapshot. The GROUP is not:
+    // pairing two pieces alters neither of their pages, and a revision for it would spend one
+    // of the three a post keeps on a relationship.
+    lang: p.lang ?? '',
+    featuredImage: p.featuredImage ? collapseBlob(p.featuredImage) : '',
+    excerpt: p.excerpt ?? '',
+    content: collapseBlob(p.content),
+  })
+}
+
+// Full metadata list, newest first. The frozen tree wrapped this in `React.cache` to
+// dedupe within one render; there is no render pass to dedupe across here.
+function readIndex(): Post[] {
+  try {
+    return all<PostRow>(
+      `select ${META_COLS} from posts p where ${liveOnly('p')} order by p.date desc`,
+    ).map(rowToMeta)
+  } catch (error) {
+    // Degrade to empty (DB unreachable) instead of 500ing.
+    console.error(`[ERROR] posts.readIndex: ${(error as Error).message}`)
+    return []
+  }
+}
+
+// Full metadata manifest, newest first (admin list incl. drafts).
+export async function getIndex(): Promise<Post[]> {
+  return readIndex()
+}
+
+// Public list: published + date reached only.
+export async function getPublicPosts(): Promise<Post[]> {
+  return readIndex().filter((p) => isPublicallyVisible(p.status, p.date))
+}
+
+/**
+ * FTS5 query text from a user's words. Every token becomes a quoted phrase, so the string
+ * can never be read as FTS5 operator syntax: an apostrophe, a `-`, a stray `"` or a bare
+ * `OR` would otherwise throw a syntax error and silently return no results. Space-joined
+ * phrases are an implicit AND, matching the `websearch` behaviour this replaces.
+ */
+function ftsQuery(input: string): string {
+  return input
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => `"${word.replaceAll('"', '""')}"`)
+    .join(' ')
+}
+
+// Full-text over title + BODY. `remove_diacritics 2` folds accents in the INDEX, so
+// "lap trinh" finds "lập trình" with no accent-stripping layer above — and `keepsAccents`
+// then puts back the half of the old Postgres behaviour that folding threw away: a reader
+// who DID type the accents meant them (see `accent.ts`).
+// Ordering stays date-desc, as in the frozen tree; bm25 relevance ranking is an ALLOWED
+// parity exception that has deliberately not been taken during the port.
+const SEARCH_LIMIT = 50
+/** Rows read before the accent pass narrows them, and only when the query has accents.
+ *  Reading exactly `SEARCH_LIMIT` would let discarded near-spellings eat the answer. */
+const SEARCH_CANDIDATES = 200
+
+export async function searchPosts(query: string): Promise<Post[]> {
+  // 200 chars, because `ftsQuery` makes one AND-ed phrase per token: the length of the
+  // string is the work. The `/search` page capped its input and the JSON API did not.
+  const q = query.trim().slice(0, 200)
+  if (!q) return []
+  const accented = accentedWords(q).length > 0
+  // The body is read only when there is an accent to check it against, and it is read into
+  // this process and dropped by `rowToMeta`: the endpoint above still answers with metadata
+  // and never with a body.
+  try {
+    return all<PostRow>(
+      `select ${META_COLS}${accented ? ', p.content' : ''} from posts_fts f
+         join posts p on p.rowid = f.rowid
+        where posts_fts match ? and ${liveOnly('p')} and p.status = 'published'
+        order by p.date desc limit ?`,
+      ftsQuery(q),
+      accented ? SEARCH_CANDIDATES : SEARCH_LIMIT,
+    )
+      .filter((row) => keepsAccents(`${row.title}\n${row.content ?? ''}`, q))
+      .slice(0, SEARCH_LIMIT)
+      .map(rowToMeta)
+      .filter((p) => isPublicallyVisible(p.status, p.date))
+  } catch (error) {
+    console.error(`[ERROR] posts.searchPosts: ${(error as Error).message}`)
+    return []
+  }
+}
+
+// Read one full post.
+export async function getPost(slug: string): Promise<PostWithContent | null> {
+  try {
+    const row = one<PostRow>(
+      `select ${META_COLS}, p.content from posts p where ${liveOnly('p')} and p.slug = ?`,
+      slug,
+    )
+    if (!row) return null
+    return { ...rowToMeta(row), content: expandBlob(row.content ?? '') }
+  } catch (error) {
+    console.error(`[ERROR] posts.getPost(${slug}): ${(error as Error).message}`)
+    return null
+  }
+}
+
+// Normalize input into a complete Post + content pair. `excerptWords` sets the
+// auto-excerpt length when the author leaves it blank.
+function normalize(input: Partial<PostWithContent>, excerptWords = 50): PostWithContent {
+  const content = (input.content ?? '').trim()
+  const title = (input.title ?? '').trim()
+  // slugify() can reduce a non-empty title/slug (emoji, punctuation-only, an empty
+  // import title) to '' — an empty slug makes the row unreachable in the editor and
+  // Trash. Fall back to a timestamped slug so every post keeps an editable identity.
+  // A post with no title is addressed by its first words before the clock (ADR 0064).
+  const slug = (input.slug?.trim() ? slugify(input.slug) : title ? slugify(title) : slugFromWords(content))
+    || `post-${Date.now()}`
+  // Author excerpt wins (length-capped); else auto from the body.
+  const excerpt = input.excerpt?.trim() ? clampExcerpt(input.excerpt.trim()) : deriveExcerpt(content, excerptWords)
+  return {
+    title,
+    slug,
+    date: input.date ?? new Date().toISOString(),
+    status: input.status === 'published' ? 'published' : 'draft',
+    categories: input.categories ?? [],
+    tags: input.tags ?? [],
+    series: input.series?.trim() || undefined,
+    seriesOrder: input.series?.trim() ? (input.seriesOrder ?? 0) : undefined,
+    metaTitle: input.metaTitle?.trim() || undefined,
+    metaDescription: input.metaDescription?.trim() || undefined,
+    coverImage: input.coverImage || undefined,
+    featuredImage: input.featuredImage || undefined,
+    // ⚠️ NARROWED, NOT TAKEN. This is the door an MCP tool and the import route come through
+    // as well as the editor, so `lang` has to survive a caller that sends 'klingon' — as
+    // undefined, which is the same thing as never having said (ADR 0056).
+    lang: asLang(input.lang),
+    translationGroup: input.translationGroup?.trim() || undefined,
+    excerpt,
+    content,
+  }
+}
+
+// Drop the body, add computed reading time so lists (no bodies) can show it.
+function toMeta(post: PostWithContent): Post {
+  const { content, ...meta } = post
+  return { ...meta, readingMinutes: readingMinutes(content) }
+}
+
+// Create or overwrite a post. `revision: false` is a rewrite that is NOT an edit and takes no
+// snapshot: `import/images.ts` carries the case, and the cost of getting it wrong.
+export async function savePost(
+  input: Partial<PostWithContent>, previousSlug?: string, opts: { revision?: boolean } = {},
+): Promise<Post> {
+  const { excerptLength } = await getSettings()
+  const post = normalize(input, excerptLength)
+  // Slug shared across posts + pages → reject collisions.
+  await ensureSlugFree(post.slug, 'post', previousSlug)
+
+  // Time machine: snapshot the current version before overwriting.
+  const overwriting = previousSlug ?? post.slug
+  const existing = one<PostRow & { created_at: number }>(
+    `select ${META_COLS}, p.content, p.created_at from posts p where p.slug = ?`, overwriting,
+  )
+  if (existing && opts.revision !== false) {
+    const prev: PostWithContent = { ...rowToMeta(existing), content: expandBlob(existing.content ?? '') }
+    if (projection(prev) !== projection({ ...post, slug: prev.slug })) {
+      await pushRevision(prev)
+    }
+  }
+
+  // `existing` decides whether this is a rename at all: a PUT naming a slug with no row is a
+  // CREATE, and without that guard one mistyped slug in an MCP call left a second copy of the
+  // post and a permanent redirect out of a path that never held anything.
+  const renaming = !!previousSlug && previousSlug !== post.slug && !!existing
+  // The row and its terms move together: a half-applied save would leave a post carrying
+  // its predecessor's categories.
+  tx(() => {
+    run(
+      `insert into posts (slug, title, date, status, featured_image, excerpt, reading_minutes,
+                          content, series, series_order, meta_title, meta_description,
+                          cover_image, lang, tr_group, created_at, updated_at)
+       values ($slug, $title, $date, $status, $featuredImage, $excerpt, $readingMinutes,
+               $content, $series, $seriesOrder, $metaTitle, $metaDescription,
+               $coverImage, $lang, $trGroup, $createdAt, $now)
+       on conflict(slug) do update set
+         title = excluded.title, date = excluded.date, status = excluded.status,
+         featured_image = excluded.featured_image, excerpt = excluded.excerpt,
+         reading_minutes = excluded.reading_minutes, content = excluded.content,
+         series = excluded.series, series_order = excluded.series_order,
+         meta_title = excluded.meta_title, meta_description = excluded.meta_description,
+         cover_image = excluded.cover_image, lang = excluded.lang,
+         tr_group = excluded.tr_group, updated_at = excluded.updated_at`,
+      {
+        slug: post.slug,
+        title: post.title,
+        date: fromIso(post.date),
+        status: post.status,
+        featuredImage: post.featuredImage ? collapseBlob(post.featuredImage) : null,
+        excerpt: post.excerpt ?? null,
+        // Recomputed so the column stays in sync with the body for list reads.
+        readingMinutes: readingMinutes(post.content),
+        content: collapseBlob(post.content),
+        series: post.series?.trim() || null,
+        seriesOrder: post.series?.trim() ? (post.seriesOrder ?? 0) : 0,
+        metaTitle: post.metaTitle?.trim() || null,
+        metaDescription: post.metaDescription?.trim() || null,
+        coverImage: post.coverImage ? collapseBlob(post.coverImage) : null,
+        lang: post.lang ?? null,
+        trGroup: post.translationGroup ?? null,
+        // A rename INSERTS a row rather than updating one, so `on conflict do update` is
+        // not there to leave the birthday alone: without this the post is restamped as
+        // created today every time its slug changes.
+        createdAt: existing?.created_at ?? nowMs(),
+        now: nowMs(),
+      },
+    )
+    writeTerms(post.slug, post.categories, post.tags)
+    // A RENAME FINISHES HERE, or none of it happened. The new row is an INSERT, so until the
+    // old one goes there are two live rows for one post; this used to be four statements after
+    // the commit, and a process that stopped between them left both rows standing with
+    // `ensureSlugFree` refusing the old slug for good. The send log moves too: keyed by slug,
+    // and the only thing telling the newsletter tab this post already went out.
+    if (renaming) {
+      run(`delete from posts where slug = ?`, previousSlug)
+      renameRevisions(previousSlug, post.slug)
+      renameComments(previousSlug, post.slug)
+      renameSends(previousSlug, post.slug)
+    }
+  })
+
+  // The 301 is outside it: it validates its own input and can refuse, and a rename with no
+  // redirect is still a rename where a half-applied one is two posts.
+  if (renaming) await saveRedirect({ source: `/${previousSlug}`, destination: `/${post.slug}`, permanent: true })
+  // The autosave is now the OLDER text, so it stops being offered. Here rather than in the
+  // route, because the MCP server and the importer save through this same function and a
+  // snapshot surviving one of those would offer to restore what the author just replaced.
+  clearAutosave('post', post.slug)
+
+  // This slug is now live content, so any redirect that used it as a SOURCE is stale
+  // (live content must win over a redirect; also breaks a rename-back self-loop).
+  await clearRedirectForPath(`/${post.slug}`)
+
+  // The AUTHOR left the excerpt blank on a published post — normalize() has already
+  // stored the mechanical fifty-word fallback, and only this save path knows the field
+  // was blank. Fire-and-forget: the job declines instantly unless a key and its switch
+  // are both on, and its write-back is guarded so an author edit always wins.
+  if (post.status === 'published' && !input.excerpt?.trim()) {
+    void writeExcerpt(post.slug, post.excerpt ?? '', post.content)
+  }
+
+  return toMeta(post)
+}
+
+// Up to `limit` other public posts sharing the most tags/categories (tags weighted
+// ×2), newest first as tiebreak. Empty when nothing shares.
+export async function getRelatedPosts(slug: string, limit = 3): Promise<Post[]> {
+  const all = await getPublicPosts()
+  const current = all.find((p) => p.slug === slug)
+  if (!current) return []
+  const tags = new Set(current.tags)
+  const cats = new Set(current.categories)
+  return all
+    .filter((p) => p.slug !== slug)
+    .map((p) => ({
+      p,
+      score: p.tags.filter((t) => tags.has(t)).length * 2 + p.categories.filter((c) => cats.has(c)).length,
+    }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || new Date(b.p.date).getTime() - new Date(a.p.date).getTime())
+    .slice(0, limit)
+    .map((x) => x.p)
+}
+
+// Rename (newName set) or remove (null) a category/tag across EVERY post. Returns posts
+// changed. One UPDATE now, not the frozen tree's read-modify-write over every row.
+export async function updateTerm(kind: TermKind, name: string, newName: string | null): Promise<number> {
+  return tx(() => updateTermRows(kind, name, newName?.trim() || null))
+}
+
+// Distinct categories across all posts.
+export async function getCategories(): Promise<string[]> {
+  const posts = await getIndex()
+  return [...new Set(posts.flatMap((p) => p.categories))].sort()
+}
+
+// Distinct tags across all posts.
+export async function getTags(): Promise<string[]> {
+  const posts = await getIndex()
+  return [...new Set(posts.flatMap((p) => p.tags))].sort()
+}
+
+export type TermCount = { name: string; count: number }
+
+// Terms of PUBLISHED posts only, with their post counts — what the public sidebar
+// lists. Busiest first, ties alphabetical. (`getCategories`/`getTags` above serve
+// the admin, and include drafts.)
+export async function getPublicTaxonomy(): Promise<{ categories: TermCount[]; tags: TermCount[] }> {
+  const posts = await getPublicPosts()
+  const tally = (pick: (p: Post) => string[]): TermCount[] => {
+    const counts = new Map<string, number>()
+    for (const p of posts) for (const term of pick(p)) counts.set(term, (counts.get(term) ?? 0) + 1)
+    return [...counts]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  }
+  return { categories: tally((p) => p.categories), tags: tally((p) => p.tags) }
+}

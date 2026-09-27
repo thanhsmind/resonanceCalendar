@@ -1,0 +1,125 @@
+// Rules that apply only on a phone, last in the cascade so they win.
+//
+// The seam is a real one rather than an arbitrary split at the line limit: a phone is not a
+// narrow desktop. A target that is comfortable under a mouse is not comfortable under a
+// thumb, iOS zooms the page when a focused field is set below 16px, and hover is not a
+// gesture a touch screen has. Nothing here matches above the phone breakpoint, so the
+// desktop keeps the geometry it was measured into.
+//
+// The breakpoint is 639px, the width the sign-up form already stacks at. It is deliberately
+// NOT the rail breakpoint: that one is computed from the reading column and decides where
+// the sidebar lives, which is a different question from whether a thumb is doing the
+// tapping.
+//
+// NO BACKTICKS anywhere below: check:css-literal enforces that.
+
+export const MOBILE_CSS = `
+@media (max-width:639px){
+/* iOS Safari zooms the whole page when a focused control is set below 16px, and --fs-small
+   measures 14px on this site: tapping the sign-up field shifted the layout sideways and left
+   it there. A FLOOR rather than a size, so a larger type role still wins. Each selector
+   names the rule that set the size, because font:inherit on those carries the same
+   specificity as a bare element selector would. */
+form.search input,form.subscribe input,.search-input,
+.comment-form input,.comment-form textarea{font-size:max(16px,1em)}
+
+/* The grid button does nothing a phone can see: measured at 390, pressing it dropped the
+   excerpts and kept the one column, so the control promised a layout the screen could not
+   give. A choice made on a laptop still travels (the island keeps it), and lands as the same
+   one column; the button simply is not offered where it cannot answer. */
+[data-grid-toggle]{display:none}
+
+/* THE GUTTER IS THE MEASURE, on a phone and nowhere else.
+   The shell has always taken 2rem a side. Above the phone breakpoint that padding is dead
+   weight -- the 42rem max-width binds first -- so it only ever spends anything on the one
+   screen with nothing to spare. Measured at 390px: 64px of 390 went to gutters and the
+   article set 33 characters to the line, against 67 on a laptop. Half the measure, on the
+   site whose lead essay argues that 66 is the number.
+   1.5rem, not 1rem. It is the whole win: at 390px both give 37 characters and 9 lines
+   where 2rem gave 33 and 10, so going narrower buys nothing measurable and only pushes the
+   words against the bezel. On a 360px Android the same step goes 30 to 33.
+   max() rather than a plain length, so a notch in landscape still wins. */
+.wrap{padding-left:max(1.5rem,env(safe-area-inset-left,0px));
+  padding-right:max(1.5rem,env(safe-area-inset-right,0px))}
+
+/* The drawer IS the navigation on a phone, and its rows measured 22px tall, 26px apart.
+   padding-block rather than a height: a row is a flex line whose label can wrap to two
+   lines, and a fixed height would clip the second one.
+   margin-top goes to ZERO here, and that is the half that was missing: the desktop list's
+   .5rem row gap ADDED to the touch padding, so the drawer aired out to a ~27px void
+   between rows ("cách xa nhau quá") — the padding alone already separates and already
+   carries the tap target, so the phone drops the desktop gap instead of stacking both. */
+.rail-row{padding-block:.6rem}
+.rail li{margin-top:0}
+.rail-tags a{padding-block:.4rem}
+footer.site a{display:inline-block;padding-block:.35rem}
+/* The newspaper's own links, which the three rules above did for every other surface and
+   which arrived after them. A kicker and a topic link are standalone links on their own
+   line -- not words inside a sentence -- so the inline-text exemption does not cover them,
+   and they measured 20px tall against the 24px minimum. inline-block because padding-block
+   does nothing to an inline box's hit area. */
+.fc-cat a,.front-topics a,.front-label a{display:inline-block;padding-block:.2rem}
+
+/* Two solid surfaces separated by one hairline. With nothing dimmed, the strip of page left
+   beside the open drawer read as part of the drawer itself, so the tap-to-close area was
+   invisible. Faint on purpose: the drawer is a list, not a modal. */
+.rail-scrim{background:rgba(0,0,0,.15)}
+
+/* A floated 30% figure at 390px is a 107px picture with a 35-character column squeezed to
+   20 beside it -- the wrap costs more than the picture earns. On a phone the figure gives
+   up the float and sits centred at a bit over half the measure, still visibly smaller than
+   a full-width plate, which is the part of its meaning a phone can keep.
+   Doubled class selectors, not a bare .img-third: the float rules are two-class strong and
+   source order alone would lose to them. */
+/* A frame costs the picture twice its width on every side, and the column is 350px here.
+   28px of mat each way leaves a 294px photograph, which is a picture of a frame. Every
+   weight drops on a phone, and redefining the STEPS rather than the classes is what also
+   moves the site-wide default: that default is inlined after this sheet and points at these
+   same names, so it lands here too instead of outranking the media query. */
+:root{--fig-step-thin:calc(var(--sp) * .375);--fig-step-med:calc(var(--sp) * .625);
+  --fig-step-thick:var(--sp)}
+.img-third,.img-left.img-third,.img-right.img-third{float:none;width:60%;
+  margin:calc(var(--sp) * 2) auto}
+/* TWO COLUMNS, WHATEVER THE COUNT SAYS. The column rule picks 2, 3 or 4 from how many
+   pictures are in the run, which is the right question on a desktop and the wrong one on a
+   350px column: measured 2026-08-28 at 390px, a run of five drew 109x72px tiles and a run
+   of ten drew 80x53px. A photograph 80 pixels wide is not a photograph, and the lightbox
+   behind it does not help — nobody taps what they cannot make out. Two columns give about
+   165px, which is a picture you can recognise and decide to open.
+   The tiles state 47vw below this same width in their own sizes attribute, so what the
+   browser fetches matches what it draws. */
+.gallery-cols-3,.gallery-cols-4{grid-template-columns:repeat(2,1fr)}
+
+/* SIX CONTROLS DO NOT FIT A FOLDED PHONE. A folding phone's cover screen is 280px wide,
+   and the bar's arithmetic stops working there: five 2.5rem controls and their gaps are
+   202px, the title's shortest word is 75px, and the 232px between the gutters cannot hold
+   both. Measured 2026-08-31 on the home page: the row ran 18px past the edge, and the
+   clipped control was the menu button. Wrap costs nothing above that width -- a flex row
+   only folds when the arithmetic fails -- so every phone that fits keeps the one-line bar
+   it was measured into. margin-left:auto keeps the folded row against the right edge,
+   where the controls already live; it stays inside this media block because above 60rem
+   the slack already belongs to .site-menu's own auto margin, and a second one would split
+   it. */
+.site-bar{flex-wrap:wrap;row-gap:.25rem}
+.site-actions{margin-left:auto}
+
+/* NO READING-PROGRESS BAR ON A PHONE. The scrollbar is already the answer to how far in you
+   are, and it is the answer the reader's own OS draws; a second one across the top of a
+   320px screen is a 2px line reporting a fact the device reports better. It also stuttered:
+   the bar is a scroll-driven animation, and on a phone it shares the compositor with the
+   address bar collapsing and the rubber-band at both ends, so it moved in steps while the
+   page moved smoothly. This is display, not opacity: the element leaves the page entirely
+   rather than sitting there invisible over the top edge. */
+.progress{display:none}
+}
+
+/* Copy sat behind pre:hover, and a touch screen never hovers: the button existed on a phone
+   but was transparent, so copying a code block was a lucky tap. Keyed on the POINTER rather
+   than the width, because a touchscreen laptop has the same problem at desktop width. */
+@media (hover:none){.code-copy{opacity:1}}
+
+/* The home indicator and the notch. Both resolve to 0px on a device that has neither, which
+   is why the fallback is in the env() rather than in a second rule. */
+.to-top{bottom:calc(1.25rem + env(safe-area-inset-bottom,0px))}
+.rail{padding-left:calc(1.25rem + env(safe-area-inset-left,0px))}
+`.trim()

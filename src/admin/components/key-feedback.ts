@@ -1,0 +1,118 @@
+// What the editor does when a key lands: an overlay caret, and a click made on the spot.
+//
+// Was `typewriter.ts`, split from Editor.tsx at the 400-line cap. Renamed on 2026-08-24 when
+// the one switch became a choice of instrument — typewriter, tactile, linear, off — because
+// a file called `typewriter` cannot honestly hold a linear switch. The seam is unchanged and
+// still clean: everything here stays OUTSIDE ProseMirror's document, so there are no
+// character wrappers, no document mutations and no selection changes.
+//
+// ⚠️ WHAT IS NOT HERE ANY MORE, and it is the important part. Every keystroke used to
+// animate the whole BLOCK — `opacity: 0.9 → 1` and a 0.6px nudge on the paragraph being
+// typed into. At sixty words a minute that is a paragraph strobing five times a second
+// under the reader's eyes, and the owner's word for it was "nháy". Nothing that moves the
+// TEXT survives: the sound carries the keystroke, the caret carries the position, and the
+// words hold still. On a real machine the paper moves and the words do not.
+import type { Editor } from '@/admin/editor/editor'
+import { playKey, type KeySound } from './key-sound'
+import type { Strike } from './key-voices'
+import { motionOn, dur, ease } from '@/admin/motion'
+
+/**
+ * How long the caret holds still after the last keystroke before it starts blinking again.
+ *
+ * The second half of the same complaint: a caret blinking through a burst of typing is a
+ * second flicker competing with the first. Every editor worth using stops it while the
+ * hands are moving — the blink says "the cursor is here and nothing is happening", and
+ * something IS happening. 700ms is about a beat and a half of ordinary typing, so a fast
+ * writer never sees it blink at all and a pause of any length does.
+ */
+const SETTLE_MS = 700
+let settleTimer = 0
+
+export function placeCaret(view: Editor['view'], caret: HTMLElement | null): void {
+  if (!caret) return
+  requestAnimationFrame(() => {
+    const stage = caret.parentElement
+    const visible = view.hasFocus() && view.state.selection.empty
+    if (!stage || !visible) {
+      stage?.classList.remove('has-typewriter-caret')
+      return
+    }
+    const cursor = view.coordsAtPos(view.state.selection.head)
+    const stageRect = stage.getBoundingClientRect()
+    caret.style.left = `${cursor.left - stageRect.left}px`
+    caret.style.top = `${cursor.top - stageRect.top}px`
+    caret.style.height = `${Math.max(16, cursor.bottom - cursor.top)}px`
+    stage.classList.add('has-typewriter-caret')
+  })
+}
+
+/** Hold the blink for the length of a burst of typing, then let it resume. */
+function holdBlink(caret: HTMLElement | null): void {
+  if (!caret) return
+  caret.classList.add('is-typing')
+  window.clearTimeout(settleTimer)
+  settleTimer = window.setTimeout(() => caret.classList.remove('is-typing'), SETTLE_MS)
+}
+
+/**
+ * One keystroke's worth of feedback.
+ *
+ * The caret moves and, in `woody` alone, takes a small step as it goes — that is the
+ * carriage, and it is the one motion left in this file. A keyboard does not move the page,
+ * so the two mechanical voices leave it alone.
+ */
+/**
+ * Which key this was, as far as any of the three instruments is concerned.
+ *
+ * A return is its own answer and not a loud space, because on a typewriter it is not even
+ * the same mechanism: the space bar lets the carriage step once, and the return throws it
+ * all the way back across the machine and into the stop.
+ */
+function strikeOf(inputType: string, data: string | null, deleting: boolean): Strike {
+  if (deleting) return 'back'
+  if (inputType === 'insertParagraph' || inputType === 'insertLineBreak') return 'return'
+  return data === ' ' ? 'space' : 'tap'
+}
+
+export function pulseInput(
+  view: Editor['view'],
+  event: InputEvent,
+  caret: HTMLElement | null,
+  sound: KeySound,
+): void {
+  if (sound.mode === 'off') return
+  const inputType = event.inputType
+  // An IME redrawing its buffer: many engines clear and re-insert the composition on
+  // EVERY keystroke, so this event is bookkeeping, not a key — reacting to it doubled
+  // the click. The keystroke's own sound comes from the insert half below.
+  if (inputType === 'deleteCompositionText') return
+  const deleting = inputType.startsWith('delete')
+  if (!deleting && !inputType.startsWith('insert')) return
+
+  // A composing keystroke still IS a keystroke. The old guard silenced the whole
+  // composition, so anyone on an IME — Vietnamese Telex, Japanese, Chinese — heard one
+  // click per finished WORD while their fingers made ten: a typewriter that skips keys.
+  // `insertCompositionText` fires once per key inside the composition; everything else
+  // that is composing (the commit's own echo) stays silent so a word does not end on a
+  // double strike.
+  if (!event.isComposing || inputType === 'insertCompositionText') {
+    playKey(sound, strikeOf(inputType, event.data, deleting))
+  }
+  placeCaret(view, caret)
+  holdBlink(caret)
+
+  if (sound.mode !== 'woody' || !caret || !motionOn()) return
+
+  // Compositor-only, on the caret and nothing else. `transform` and `opacity` on one 2px
+  // element cost a composite; the version this replaced repainted a whole paragraph.
+  caret.animate(
+    deleting
+      ? [{ transform: 'translateX(-2px) scaleY(0.86)' }, { transform: 'translateX(0) scaleY(1)' }]
+      : [{ transform: 'translateY(1px) scaleY(0.9)' }, { transform: 'translateY(0) scaleY(1)' }],
+    // ⚠️ THE ENGINE'S FAST, not a fourth curve and a fourth number. This was 110ms on
+    // cubic-bezier(.2,.8,.2,1), which nothing else in the product used; the settle is 40ms
+    // longer now and on the one curve everything else settles on.
+    { duration: dur('fast'), easing: ease() },
+  )
+}
