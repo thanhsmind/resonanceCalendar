@@ -3,7 +3,7 @@ import { readEnv } from '@/env'
 import { getPublicPosts } from '@/content/posts'
 import { ensureBlobStore } from '@/media/blob-local'
 import { createApp } from '@/web/app'
-import { mkdirSync, writeFileSync, cpSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, cpSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const env = readEnv()
@@ -13,7 +13,8 @@ ensureBlobStore()
 const OUT_DIR = join(process.cwd(), 'dist')
 mkdirSync(OUT_DIR, { recursive: true })
 
-console.log(`Starting static export to ${OUT_DIR}...`)
+const BASE_PATH = '/resonanceCalendar'
+console.log(`Starting static export to ${OUT_DIR} with BASE_PATH=${BASE_PATH}...`)
 
 const app = createApp()
 
@@ -38,7 +39,7 @@ async function download(path: string, outPath: string) {
     const dir = join(outPath, '..')
     mkdirSync(dir, { recursive: true })
     if (contentType.includes('text') || contentType.includes('json') || contentType.includes('xml')) {
-      const text = await res.text()
+      let text = await res.text()
       writeFileSync(outPath, text, 'utf-8')
     } else {
       const buffer = await res.arrayBuffer()
@@ -48,6 +49,28 @@ async function download(path: string, outPath: string) {
   } catch (err: any) {
     console.error(`[ERROR] Crawling ${path}:`, err?.message || err)
     return false
+  }
+}
+
+function rewritePrefix(dir: string) {
+  const entries = readdirSync(dir)
+  for (const entry of entries) {
+    const p = join(dir, entry)
+    const st = statSync(p)
+    if (st.isDirectory()) {
+      rewritePrefix(p)
+    } else if (p.endsWith('.html') || p.endsWith('.xml') || p.endsWith('.json') || p.endsWith('.css') || p.endsWith('.js')) {
+      let content = readFileSync(p, 'utf-8')
+      // replace root paths /assets/, /fonts/, /post/ etc with /resonanceCalendar/
+      content = content.replace(/(["'])\/(assets|fonts|app-icon\.png|favicon\.ico|manifest\.webmanifest|feed\.xml|feed\.json|search)/g, `$1${BASE_PATH}/$2`)
+      // replace post links: href="/kien-truc-..." or href="/12-nam-..." or href="/cai-gia-..." or href="/"
+      content = content.replace(/href="\/([a-zA-Z0-9_-]+)"/g, (match, slug) => {
+        if (slug === 'assets' || slug === 'fonts') return match
+        return `href="${BASE_PATH}/${slug}"`
+      })
+      content = content.replace(/href="\/"/g, `href="${BASE_PATH}/"`)
+      writeFileSync(p, content, 'utf-8')
+    }
   }
 }
 
@@ -81,6 +104,10 @@ try {
     console.log(`- /${p.slug}`)
     await download(`/${p.slug}`, join(OUT_DIR, p.slug, 'index.html'))
   }
+
+  // Rewrite URLs for GitHub Pages repository subdirectory
+  console.log('Rewriting root-relative paths for GitHub Pages sub-path...')
+  rewritePrefix(OUT_DIR)
 
   // Add .nojekyll for GitHub Pages
   writeFileSync(join(OUT_DIR, '.nojekyll'), '', 'utf-8')
