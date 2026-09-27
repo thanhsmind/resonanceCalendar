@@ -13,10 +13,6 @@ build/
 
 # runtime data. SQLite databases and everything a reader or the owner uploaded: this is
 # the instance, not the product, and none of it belongs in a public repository.
-*.db
-*.db-wal
-*.db-shm
-data/
 uploads/
 data-dev-uploads/
 
@@ -65,3 +61,4 @@ media-index-backup-*.json
 # knows how to install it, work it over MCP and move a blog into it.
 .claude/*
 !.claude/skills/
+dist/
