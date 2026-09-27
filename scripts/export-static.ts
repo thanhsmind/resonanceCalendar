@@ -18,7 +18,6 @@ console.log(`Starting static export to ${OUT_DIR} with BASE_PATH=${BASE_PATH}...
 
 const app = createApp()
 
-// Start local server in background to crawl
 const server = Bun.serve({
   port: 3999,
   fetch(req) {
@@ -27,6 +26,8 @@ const server = Bun.serve({
 })
 
 console.log(`Local crawler server running on http://127.0.0.1:${server.port}`)
+
+const discoveredAssets = new Set<string>()
 
 async function download(path: string, outPath: string) {
   try {
@@ -40,6 +41,13 @@ async function download(path: string, outPath: string) {
     mkdirSync(dir, { recursive: true })
     if (contentType.includes('text') || contentType.includes('json') || contentType.includes('xml')) {
       let text = await res.text()
+
+      // Track assets referenced in html
+      const matches = text.matchAll(/(?:href|src)="(\/assets\/[^"]+|\/fonts\/[^"]+|\/app-icon\.png|\/favicon\.ico)"/g)
+      for (const m of matches) {
+        discoveredAssets.add(m[1])
+      }
+
       writeFileSync(outPath, text, 'utf-8')
     } else {
       const buffer = await res.arrayBuffer()
@@ -61,9 +69,7 @@ function rewritePrefix(dir: string) {
       rewritePrefix(p)
     } else if (p.endsWith('.html') || p.endsWith('.xml') || p.endsWith('.json') || p.endsWith('.css') || p.endsWith('.js')) {
       let content = readFileSync(p, 'utf-8')
-      // replace root paths /assets/, /fonts/, /post/ etc with /resonanceCalendar/
       content = content.replace(/(["'])\/(assets|fonts|app-icon\.png|favicon\.ico|manifest\.webmanifest|feed\.xml|feed\.json|search)/g, `$1${BASE_PATH}/$2`)
-      // replace post links: href="/kien-truc-..." or href="/12-nam-..." or href="/cai-gia-..." or href="/"
       content = content.replace(/href="\/([a-zA-Z0-9_-]+)"/g, (match, slug) => {
         if (slug === 'assets' || slug === 'fonts') return match
         return `href="${BASE_PATH}/${slug}"`
@@ -75,34 +81,32 @@ function rewritePrefix(dir: string) {
 }
 
 try {
-  // 1. Copy static assets
-  console.log('Copying static assets...')
-  const assetsDir = join(process.cwd(), 'src/assets/dist')
-  if (existsSync(assetsDir)) {
-    cpSync(assetsDir, join(OUT_DIR, 'assets'), { recursive: true })
-  }
-  const fontsDir = join(process.cwd(), 'src/assets/static/fonts')
-  if (existsSync(fontsDir)) {
-    cpSync(fontsDir, join(OUT_DIR, 'fonts'), { recursive: true })
-  }
-  const staticDir = join(process.cwd(), 'src/assets/static')
-  if (existsSync(staticDir)) {
-    cpSync(staticDir, OUT_DIR, { recursive: true })
-  }
-
-  // 2. Fetch main routes
+  // 1. Fetch main routes
   console.log('Fetching main pages...')
   await download('/', join(OUT_DIR, 'index.html'))
   await download('/search', join(OUT_DIR, 'search/index.html'))
   await download('/feed.xml', join(OUT_DIR, 'feed.xml'))
   await download('/feed.json', join(OUT_DIR, 'feed.json'))
 
-  // 3. Fetch all posts
+  // 2. Fetch all posts
   const posts = await getPublicPosts()
   console.log(`Exporting ${posts.length} posts...`)
   for (const p of posts) {
-    console.log(`- /${p.slug}`)
     await download(`/${p.slug}`, join(OUT_DIR, p.slug, 'index.html'))
+  }
+
+  // 3. Download dynamically generated assets
+  console.log(`Downloading ${discoveredAssets.size} discovered server assets...`)
+  for (const assetPath of discoveredAssets) {
+    console.log(`- ${assetPath}`)
+    const target = join(OUT_DIR, assetPath.replace(/^\//, ''))
+    await download(assetPath, target)
+  }
+
+  // Copy font files
+  const fontsDir = join(process.cwd(), 'src/assets/static/fonts')
+  if (existsSync(fontsDir)) {
+    cpSync(fontsDir, join(OUT_DIR, 'fonts'), { recursive: true })
   }
 
   // Rewrite URLs for GitHub Pages repository subdirectory
