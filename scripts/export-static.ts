@@ -95,10 +95,29 @@ try {
     await download(`/${p.slug}`, join(OUT_DIR, p.slug, 'index.html'))
   }
 
+  // 2b. Add redirect for the obsolete English "giai-ma-..." slug to the clean Vietnamese slug
+  const legacySlug = 'giai-ma-kien-truc-deepseek-understand-grouped-query-attention-gqa-the-final-frontier-before-latent-attention'
+  const targetSlug = 'kien-truc-deepseek-understand-grouped-query-attention-gqa-the-final-frontier-before-latent-attention'
+  const redirectHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Đang chuyển hướng...</title>
+  <link rel="canonical" href="${BASE_PATH}/${targetSlug}/">
+  <meta http-equiv="refresh" content="0; url=${BASE_PATH}/${targetSlug}/">
+</head>
+<body>
+  <p>Bài viết đã được chuyển sang bản dịch Tiếng Việt hoàn chỉnh: <a href="${BASE_PATH}/${targetSlug}/">bấm vào đây</a>.</p>
+</body>
+</html>`
+  const legacyDir = join(OUT_DIR, legacySlug)
+  mkdirSync(legacyDir, { recursive: true })
+  writeFileSync(join(legacyDir, 'index.html'), redirectHtml, 'utf-8')
+  console.log(`✓ Created redirect from ${legacySlug} -> ${targetSlug}`)
+
   // 3. Download dynamically generated assets
   console.log(`Downloading ${discoveredAssets.size} discovered server assets...`)
   for (const assetPath of discoveredAssets) {
-    console.log(`- ${assetPath}`)
     const target = join(OUT_DIR, assetPath.replace(/^\//, ''))
     await download(assetPath, target)
   }
