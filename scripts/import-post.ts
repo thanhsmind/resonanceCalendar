@@ -38,6 +38,8 @@ try {
     categories: data.categories || ["Articles"],
     tags: data.tags || [],
     lang: data.lang || "vi",
+    series: data.series,
+    seriesOrder: data.seriesOrder ?? existing?.seriesOrder ?? 0,
   }, previousSlug)
 
   console.log(JSON.stringify({ success: true, post: result }))
