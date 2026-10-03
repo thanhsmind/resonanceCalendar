@@ -13,6 +13,7 @@
     "build": "bun run build:assets && bun run build:admin",
     "build:assets": "bun scripts/build-assets.ts",
     "build:admin": "bun scripts/build-admin.ts",
+    "build:static": "bun run build:assets && bun run build:admin && bun run scripts/export-static.ts",
     "test": "bun run build:assets && bun test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/assets/js && tsc --noEmit -p src/admin",
     "check:filesize": "bun scripts/checks/file-size.ts",

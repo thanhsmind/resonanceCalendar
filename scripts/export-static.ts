@@ -13,8 +13,8 @@ ensureBlobStore()
 const OUT_DIR = join(process.cwd(), 'dist')
 mkdirSync(OUT_DIR, { recursive: true })
 
-const BASE_PATH = '/resonanceCalendar'
-console.log(`Starting static export to ${OUT_DIR} with BASE_PATH=${BASE_PATH}...`)
+const BASE_PATH = process.env.BASE_PATH !== undefined ? process.env.BASE_PATH : ''
+console.log(`Starting static export to ${OUT_DIR} with BASE_PATH="${BASE_PATH}"...`)
 
 const app = createApp()
 
@@ -128,11 +128,13 @@ try {
     cpSync(fontsDir, join(OUT_DIR, 'fonts'), { recursive: true })
   }
 
-  // Rewrite URLs for GitHub Pages repository subdirectory
-  console.log('Rewriting root-relative paths for GitHub Pages sub-path...')
-  rewritePrefix(OUT_DIR)
+  // Rewrite URLs for repository subdirectory if BASE_PATH is set
+  if (BASE_PATH) {
+    console.log(`Rewriting root-relative paths for sub-path (${BASE_PATH})...`)
+    rewritePrefix(OUT_DIR)
+  }
 
-  // Add .nojekyll for GitHub Pages
+  // Add .nojekyll for compatibility
   writeFileSync(join(OUT_DIR, '.nojekyll'), '', 'utf-8')
 
   console.log('✓ Static export completed successfully!')
