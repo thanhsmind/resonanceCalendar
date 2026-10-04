@@ -56,6 +56,8 @@ const HEAD_STYLES = `
 </style>
 `
 
+const DETAIL_BODY_ATTRS = `data-search="Search" data-search-hint="Type to search posts." data-search-empty="No matching posts found." data-lightbox-close="Close" data-grid-view="Grid view" data-list-view="List view" data-theme="Theme" data-default-scheme="system" data-theme-light="Light" data-theme-dark="Dark" data-theme-system="System" data-theme-time="By time" data-palette="Palette" data-nl-success="Almost there — check your inbox to confirm." data-nl-no-mail="Signed up. Email is not configured, so no confirmation was sent." data-nl-invalid="That does not look like an email address." data-nl-error="Something went wrong. Please try again." data-nl-heading="Subscribe to the newsletter" data-nl-placeholder="your@email.com" data-nl-button="Subscribe" data-copy-code="Copy" data-copied-code="Copied" data-back-to-top="Back to top" data-quote-copy="Copy quote" data-quote-copied="Copied" data-lightbox-prev="Previous image" data-lightbox-next="Next image" data-book-mode="Book mode" data-book-mode-prev="Previous page" data-book-mode-next="Next page" data-book-mode-close="Close" data-book-mode-smaller="Smaller text" data-book-mode-larger="Larger text" data-resume-prompt="Continue where you left off?" data-reader-pen="1" data-pen-sheets="/assets/pen-marks.292arbzbqb.css /assets/pen-lines.u227d05dhf.css" data-pen-inks="d5f856,aaef83,faaad9,8ed6f9,fac881" data-reader-pen-highlight="Highlight" data-reader-pen-underline="Underline" data-reader-pen-ring="Ring" data-reader-pen-note="Note" data-reader-pen-delete="Remove mark" data-reader-pen-note-hint="Your note, kept in this browser" data-reader-pen-send="Send to my notebook" data-reader-pen-notebook-ask="Where is your Quire Ink? Its address:" data-reader-pen-notebook-go="Send" data-reader-pen-kept-here="Kept in this browser only." data-reader-pen-keep="Keep on every device" data-reader-pen-keep-google="Sign in with Google" data-reader-pen-keep-code="Get a code" data-reader-pen-keep-have="Have a code? Paste it:" data-reader-pen-keep-use="Use" data-reader-pen-kept="Kept on every device." data-reader-pen-keep-hint="Write this code down. It is the only key to your marks, and it works on any device." data-reader-pen-forget-here="Forget on this device" data-reader-pen-forget-all="Forget everywhere" data-reader-pen-keep-bad="That code is not known here." data-reader-pen-show-code="Show code"`
+
 function formatDisplayDate(timestamp: number): string {
   const d = new Date(timestamp)
   return d.toLocaleDateString('en-US', {
@@ -70,14 +72,14 @@ function escapeHtml(str: string): string {
 }
 
 // Custom Markdown renderer with YouTube embed support
-function renderPostMarkdown(content: string): string {
-  // If it's already HTML (e.g. contains <p> or <div), return as is
-  if (content.trim().startsWith('<') && (content.includes('</p>') || content.includes('</div>'))) {
-    return content
-  }
+function renderPostMarkdown(content: string, title: string): string {
+  let md = content.trim()
+
+  // Remove duplicate top H1 in markdown if it matches title
+  md = md.replace(/^#\s+[^\n]+\n+/, '')
 
   // Auto-embed YouTube URLs on their own line
-  let md = content.replace(/(?:^|\n)(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\S*)?(?=\n|$)/g, (match, id) => {
+  md = md.replace(/(?:^|\n)(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\S*)?(?=\n|$)/g, (match, id) => {
     return `\n<div class="video-embed"><iframe src="https://www.youtube-nocookie.com/embed/${id}" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>\n`
   })
 
@@ -100,6 +102,7 @@ function renderShell(props: {
   const canonical = props.canonical || 'https://rc.gogl.be/'
   const ogType = props.ogType || 'website'
   const wrapClass = props.isArticle ? 'wrap book-text' : 'wrap'
+  const bodyAttributes = props.isArticle ? DETAIL_BODY_ATTRS : 'data-search="Search" data-search-hint="Type to search posts." data-search-empty="No matching posts found." data-lightbox-close="Close" data-grid-view="Grid view" data-list-view="List view" data-theme="Theme" data-default-scheme="system" data-theme-light="Light" data-theme-dark="Dark" data-theme-system="System" data-theme-time="By time" data-palette="Palette"'
 
   return `<!DOCTYPE html>
 <html lang="en" data-motion="on" data-chrome-font="inter" data-scroll-fade="on">
@@ -125,7 +128,7 @@ function renderShell(props: {
 <link rel="preload" href="/fonts/literata-latin.woff2" as="font" type="font/woff2" crossorigin>
 ${HEAD_STYLES}
 </head>
-<body data-search="Search" data-search-hint="Type to search posts." data-search-empty="No matching posts found." data-lightbox-close="Close" data-grid-view="Grid view" data-list-view="List view" data-theme="Theme" data-default-scheme="system" data-theme-light="Light" data-theme-dark="Dark" data-theme-system="System" data-theme-time="By time" data-palette="Palette" ${props.bodyClass || ''}>
+<body ${bodyAttributes} ${props.bodyClass || ''}>
 ${props.isArticle ? '<div class="progress" aria-hidden="true"><div class="progress-fill"></div></div>' : ''}
 <div class="${wrapClass}">
 <header class="site">
@@ -139,7 +142,7 @@ ${props.rail || ''}
 <footer class="site"><p class="footer-text">© 2026 Quire Ink · <a href="https://quireink.com" rel="noopener">powered by Quire Ink</a></p></footer>
 </div>
 <script src="/assets/core.2p6tjc3qag.js" defer></script>
-${props.isArticle ? '<script src="/assets/post.35r2vd4txw.js" defer></script>' : ''}
+${props.isArticle ? '<script src="/assets/post.35r2vd4txw.js" defer></script><script src="/assets/book-mode.36rvlmc5ei.js" defer></script><script src="/assets/reader-pen.28l63hl3ut.js" defer></script>' : ''}
 </body>
 </html>`
 }
@@ -350,6 +353,19 @@ app.get('/:slug', async (c) => {
   const wordCount = post.content.replace(/<[^>]+>/g, '').split(/\s+/).length
   const readMin = post.reading_minutes || Math.ceil(wordCount / 200)
 
+  // Get next post & related posts
+  const nextPost = await c.env.DB.prepare(`
+    SELECT slug, title FROM posts
+    WHERE date < ? AND status = 'published' AND deleted_at IS NULL
+    ORDER BY date DESC LIMIT 1
+  `).bind(post.date).first<Post>()
+
+  const { results: relatedPosts } = await c.env.DB.prepare(`
+    SELECT slug, title, date FROM posts
+    WHERE slug != ? AND status = 'published' AND deleted_at IS NULL
+    ORDER BY date DESC LIMIT 3
+  `).bind(slug).all<Post>()
+
   const articleHtml = `
 <article>
 <header>
@@ -360,12 +376,28 @@ ${post.excerpt ? `<p class="deck">${escapeHtml(post.excerpt)}</p>` : ''}
 <aside class="post-info t-small text-meta">
 <p><time datetime="${dateIso}">${formattedDate}</time></p>
 <p><span class="num">${wordCount.toLocaleString()}</span> words · <span class="num">${readMin}</span> min read</p>
+<span class="anchor" id="post-info-tags"></span>
 ${tags.length > 0 ? `<p class="info-terms">Tag: <span class="term-list">${tags.map(t => `<a class="link-accent lower" href="/tag/${encodeURIComponent(t.term.toLowerCase())}">${escapeHtml(t.term)}</a>`).join(', ')}</span></p>` : ''}
+<span class="anchor" id="post-info-categories"></span>
 ${categories.length > 0 ? `<p class="info-terms">Category: <span class="term-list">${categories.map(c => `<a class="link-accent" href="/category/${encodeURIComponent(c.term.toLowerCase())}">${escapeHtml(c.term)}</a>`).join(', ')}</span></p>` : ''}
+<p class="info-action"><button type="button" class="book-mode-toggle" data-book-open><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6.5C10.4 5.2 8.4 4.5 6 4.5H4v13h2c2.4 0 4.4.7 6 2 1.6-1.3 3.6-2 6-2h2v-13h-2c-2.4 0-4.4.7-6 2z"/><path d="M12 6.5v13"/><path d="M10.3 9.5v4.5" stroke-width="1.4"/></svg><span>Book mode</span></button></p>
 </aside>
+<aside class="rail rail-toc"><div class="rail-inner"><nav class="toc" aria-label="Contents">
+<details open><summary><h2>Contents</h2></summary>
+<ul><li><a class="rail-row link-accent t-small is-active" href="#top">${escapeHtml(post.title)}</a></li><li><a class="rail-row link-accent t-small toc-end" href="#post-tags">Tag / Category</a></li></ul>
+</details>
+</nav></div></aside>
 <div id="post-body" class="prose">
-${renderPostMarkdown(post.content)}
+${renderPostMarkdown(post.content, post.title)}
 </div>
+<span class="anchor" id="post-tags"></span><span class="anchor" id="post-categories"></span>
+<hr class="taxo-rule">
+<footer class="post-taxo t-small text-meta">
+${tags.length > 0 ? `<p>Tag: <span class="term-list">${tags.map(t => `<a class="link-accent lower" href="/tag/${encodeURIComponent(t.term.toLowerCase())}">${escapeHtml(t.term)}</a>`).join(', ')}</span></p>` : ''}
+${categories.length > 0 ? `<p>Category: <span class="term-list">${categories.map(c => `<a class="link-accent" href="/category/${encodeURIComponent(c.term.toLowerCase())}">${escapeHtml(c.term)}</a>`).join(', ')}</span></p>` : ''}
+</footer>
+${nextPost ? `<hr><section class="read-next"><p class="read-next-label">Read next</p><p class="read-next-title reading-font"><a class="link-accent" href="/${nextPost.slug}">${escapeHtml(nextPost.title)}</a></p></section>` : ''}
+${relatedPosts.length > 0 ? `<hr><section class="related"><h2>Related posts</h2><ul>${relatedPosts.map(r => `<li><a class="link-accent" href="/${r.slug}">${escapeHtml(r.title)}</a><p class="t-small text-meta">${formatDisplayDate(r.date)}</p></li>`).join('')}</ul></section>` : ''}
 </article>
 `
 
