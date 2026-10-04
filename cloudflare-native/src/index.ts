@@ -1,5 +1,4 @@
 import { Hono } from 'hono'
-import { html } from 'hono/html'
 
 type Bindings = {
   DB: D1Database
@@ -18,192 +17,180 @@ type Post = {
   meta_title: string | null
   meta_description: string | null
   cover_image: string | null
+  created_at: number
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-// Helper format date
-function formatDate(timestamp: number): string {
+// Inline styles Quire Ink hoàn chỉnh (Fonts, Palette, Theme variables)
+const HEAD_STYLES = `
+<style>
+@font-face{font-family:'Inter';font-style:normal;font-weight:400 700;font-display:swap;src:url('/fonts/inter-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Inter';font-style:normal;font-weight:400 700;font-display:swap;src:url('/fonts/inter-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF,U+FB00-FB06}
+@font-face{font-family:'Inter';font-style:normal;font-weight:400 700;font-display:swap;src:url('/fonts/inter-vietnamese.woff2') format('woff2');unicode-range:U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:400 700;font-display:swap;src:url('/fonts/jetbrainsmono-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:400 700;font-display:swap;src:url('/fonts/jetbrainsmono-vietnamese.woff2') format('woff2');unicode-range:U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB}
+@font-face{font-family:'Literata';font-style:normal;font-weight:400 700;font-display:swap;src:url('/fonts/literata-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Literata';font-style:normal;font-weight:400 700;font-display:swap;src:url('/fonts/literata-vietnamese.woff2') format('woff2');unicode-range:U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB}
+:root{--font-sans:'Inter', system-ui, -apple-system, sans-serif;--font-reading:var(--font-sans);--font-mono:'JetBrains Mono', monospace}
+:root{--shell-w:672px}
+:root{--font-reading:'Literata', Georgia, serif;--reading-bold:600}
+:root{color-scheme:light;--c-bg:#fcfcfc;--c-text:#30302f;--c-heading:#1a1919;--c-meta:#6d6c6c;--c-link:#1a1919;--c-accent:#1a1919;--c-rule:#e3e2e2}
+.dark{color-scheme:dark;--c-bg:#0e0e0e;--c-text:#d4d4d3;--c-heading:#f1f0f0;--c-meta:#868685;--c-link:#f1f0f0;--c-accent:#f1f0f0;--c-rule:#2a2a29}
+[data-palette="mono"]{--c-bg:#fcfcfc;--c-text:#30302f;--c-heading:#1a1919;--c-meta:#6d6c6c;--c-link:#1a1919;--c-accent:#1a1919;--c-rule:#e3e2e2}
+[data-palette="mono"].dark{--c-bg:#0e0e0e;--c-text:#d4d4d3;--c-heading:#f1f0f0;--c-meta:#868685;--c-link:#f1f0f0;--c-accent:#f1f0f0;--c-rule:#2a2a29}
+[data-palette="sepia"]{--c-bg:#fcf7ed;--c-text:#372a1e;--c-heading:#1d140a;--c-meta:#736959;--c-link:#91552e;--c-accent:#91552e;--c-rule:#e8ddc8}
+[data-palette="sepia"].dark{--c-bg:#1a140e;--c-text:#e5d8c4;--c-heading:#fff6e4;--c-meta:#968974;--c-link:#db9f6f;--c-accent:#db9f6f;--c-rule:#362d22}
+[data-palette="forest"]{--c-bg:#f5f7f2;--c-text:#262e26;--c-heading:#0f170f;--c-meta:#646b60;--c-link:#336f43;--c-accent:#336f43;--c-rule:#d8dfd3}
+[data-palette="forest"].dark{--c-bg:#0f140f;--c-text:#d1dacc;--c-heading:#f0f7ec;--c-meta:#808d7a;--c-link:#7db78c;--c-accent:#7db78c;--c-rule:#262f23}
+[data-palette="ocean"]{--c-bg:#f0f8ff;--c-text:#212d3b;--c-heading:#091623;--c-meta:#616b73;--c-link:#2466a7;--c-accent:#2466a7;--c-rule:#d1dfed}
+[data-palette="ocean"].dark{--c-bg:#031127;--c-text:#cad8e6;--c-heading:#edf4fd;--c-meta:#7c8a97;--c-link:#6fafe6;--c-accent:#6fafe6;--c-rule:#1b2d42}
+[data-palette="scifi"]{--c-bg:#f6f8f7;--c-text:#292d31;--c-heading:#141619;--c-meta:#666a70;--c-link:#006f75;--c-accent:#006f75;--c-rule:#dcdfe1}
+[data-palette="scifi"].dark{--c-bg:#0d0f11;--c-text:#d1d5d8;--c-heading:#eef2f3;--c-meta:#81888d;--c-link:#00b9c4;--c-accent:#00b9c4;--c-rule:#262a2f}
+[data-palette="amber"]{--c-bg:#fcfbf8;--c-text:#322e2a;--c-heading:#1c1915;--c-meta:#6f6b65;--c-link:#975500;--c-accent:#975500;--c-rule:#e5e1d9}
+[data-palette="amber"].dark{--c-bg:#100f0d;--c-text:#d9d5cc;--c-heading:#f5f1eb;--c-meta:#8b867d;--c-link:#e09932;--c-accent:#e09932;--c-rule:#2d2a25}
+@media (prefers-color-scheme:dark){:root:not([data-scheme]){color-scheme:dark;--c-bg:#0e0e0e;--c-text:#d4d4d3;--c-heading:#f1f0f0;--c-meta:#868685;--c-link:#f1f0f0;--c-accent:#f1f0f0;--c-rule:#2a2a29}}
+:root{--density:1;--radius:.5rem;--fw-title:700;--fw-heading:600}
+:root{--fs-h1:calc(2rem * var(--type-scale, 1));--lh-h1:1.2;--ls-h1:-0.01em;--fs-h2:calc(1.5rem * var(--type-scale, 1));--lh-h2:1.27;--ls-h2:-0.008em;--fs-h3:calc(1.25rem * var(--type-scale, 1));--lh-h3:1.35;--ls-h3:0em;--fs-body:calc(1.125rem * var(--type-scale, 1));--lh-body:1.65;--ls-body:0em;--fs-small:calc(0.95rem * var(--type-scale, 1));--lh-small:1.6;--ls-small:0em}
+</style>
+`
+
+function formatDisplayDate(timestamp: number): string {
   const d = new Date(timestamp)
-  return d.toLocaleDateString('vi-VN', {
-    year: 'numeric',
+  return d.toLocaleDateString('en-US', {
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
+    year: 'numeric'
   })
 }
 
-// Layout HTML chung
-function Layout(props: { title: string; description?: string; children: any; canonical?: string }) {
-  const siteTitle = props.title.includes('Quire Ink') ? props.title : `${props.title} · Quire Ink`
-  const desc = props.description || 'Resonance Calendar — Tri thức & Công nghệ'
-  const canonical = props.canonical || 'https://rc.gogl.be/'
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
 
-  return html`<!DOCTYPE html>
-<html lang="vi" data-motion="on" data-chrome-font="inter">
+// Shell HTML giống hệt Quire Ink gốc
+function renderShell(props: {
+  title: string
+  description?: string
+  canonical?: string
+  ogType?: string
+  bodyClass?: string
+  content: string
+  rail?: string
+  isArticle?: boolean
+}) {
+  const siteTitle = props.title === 'Quire Ink' ? 'Quire Ink' : `${props.title} · Quire Ink`
+  const desc = props.description || 'Quire Ink blog'
+  const canonical = props.canonical || 'https://rc.gogl.be/'
+  const ogType = props.ogType || 'website'
+  const wrapClass = props.isArticle ? 'wrap book-text' : 'wrap'
+
+  return `<!DOCTYPE html>
+<html lang="en" data-motion="on" data-chrome-font="inter" data-scroll-fade="on">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${siteTitle}</title>
-  <meta name="description" content="${desc}">
-  <link rel="canonical" href="${canonical}">
-  <link rel="alternate" type="application/rss+xml" title="Quire Ink" href="/feed.xml">
-  <link rel="stylesheet" href="/assets/site.fn5khyu4jd.css">
-  <style>
-    :root {
-      --shell-w: 672px;
-      --font-sans: system-ui, -apple-system, sans-serif;
-      --font-reading: 'Literata', Georgia, serif;
-      --c-bg: #fcfcfc;
-      --c-text: #30302f;
-      --c-heading: #1a1919;
-      --c-meta: #6d6c6c;
-      --c-rule: #e3e2e2;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --c-bg: #0e0e0e;
-        --c-text: #d4d4d3;
-        --c-heading: #f1f0f0;
-        --c-meta: #868685;
-        --c-rule: #2a2a29;
-      }
-    }
-    body {
-      background: var(--c-bg);
-      color: var(--c-text);
-      font-family: var(--font-reading);
-      margin: 0;
-      padding: 0;
-      line-height: 1.7;
-    }
-    .wrap {
-      max-width: var(--shell-w);
-      margin: 0 auto;
-      padding: 2rem 1.25rem 4rem;
-    }
-    header.site-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding-bottom: 2rem;
-      margin-bottom: 2.5rem;
-      border-bottom: 1px solid var(--c-rule);
-      font-family: var(--font-sans);
-    }
-    header.site-header a.logo {
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: var(--c-heading);
-      text-decoration: none;
-    }
-    .post-item {
-      margin-bottom: 2.5rem;
-    }
-    .post-item h2 {
-      margin: 0 0 0.4rem;
-      font-size: 1.45rem;
-      line-height: 1.3;
-    }
-    .post-item h2 a {
-      color: var(--c-heading);
-      text-decoration: none;
-    }
-    .post-item h2 a:hover {
-      text-decoration: underline;
-    }
-    .post-meta {
-      font-size: 0.875rem;
-      color: var(--c-meta);
-      font-family: var(--font-sans);
-      margin-bottom: 0.6rem;
-    }
-    .post-excerpt {
-      color: var(--c-text);
-      margin: 0;
-      font-size: 1.05rem;
-    }
-    article.post-full h1 {
-      font-size: 2rem;
-      line-height: 1.25;
-      color: var(--c-heading);
-      margin-bottom: 0.5rem;
-    }
-    article.post-full .content {
-      font-size: 1.125rem;
-      line-height: 1.8;
-      margin-top: 2rem;
-    }
-    article.post-full .content p { margin: 1.25rem 0; }
-    article.post-full .content blockquote {
-      border-left: 3px solid var(--c-rule);
-      padding-left: 1.25rem;
-      margin: 1.5rem 0;
-      color: var(--c-meta);
-      font-style: italic;
-    }
-    article.post-full .content pre {
-      background: rgba(0,0,0,0.04);
-      padding: 1rem;
-      border-radius: 6px;
-      overflow-x: auto;
-    }
-    footer.site-footer {
-      margin-top: 4rem;
-      padding-top: 2rem;
-      border-top: 1px solid var(--c-rule);
-      font-size: 0.875rem;
-      color: var(--c-meta);
-      font-family: var(--font-sans);
-      text-align: center;
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fcfcfc">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e0e0e">
+<meta name="generator" content="Quire Ink 2.2.15">
+<title>${escapeHtml(siteTitle)}</title>
+<link rel="canonical" href="${canonical}">
+<link rel="apple-touch-icon" href="/app-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="alternate" type="application/rss+xml" title="Quire Ink" href="/feed.xml">
+<link rel="alternate" type="application/feed+json" title="Quire Ink" href="/feed.json">
+<meta property="og:title" content="${escapeHtml(siteTitle)}">
+<meta property="og:type" content="${ogType}">
+<meta property="og:url" content="${canonical}">
+<meta property="og:site_name" content="Quire Ink">
+<meta property="og:description" content="${escapeHtml(desc)}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/assets/site.fn5khyu4jd.css">
+<link rel="preload" href="/fonts/literata-latin.woff2" as="font" type="font/woff2" crossorigin>
+${HEAD_STYLES}
 </head>
-<body>
-  <div class="wrap">
-    <header class="site-header">
-      <a href="/" class="logo">Quire Ink</a>
-      <nav>
-        <a href="/search" style="color:var(--c-heading);text-decoration:none;margin-right:1rem;">Tìm kiếm</a>
-        <a href="/feed.xml" style="color:var(--c-heading);text-decoration:none;">RSS</a>
-      </nav>
-    </header>
-    <main>
-      ${props.children}
-    </main>
-    <footer class="site-footer">
-      <p>Resonance Calendar · Quire Ink on Cloudflare Edge</p>
-    </footer>
-  </div>
+<body data-search="Search" data-search-hint="Type to search posts." data-search-empty="No matching posts found." data-lightbox-close="Close" data-grid-view="Grid view" data-list-view="List view" data-theme="Theme" data-default-scheme="system" data-theme-light="Light" data-theme-dark="Dark" data-theme-system="System" data-theme-time="By time" data-palette="Palette" ${props.bodyClass || ''}>
+${props.isArticle ? '<div class="progress" aria-hidden="true"><div class="progress-fill"></div></div>' : ''}
+<div class="${wrapClass}">
+<header class="site">
+<a class="skip-link" href="#content">Skip to content</a>
+<div class="site-bar"><a class="title" href="/">Quire Ink</a><div class="site-actions"><a class="icon-btn" href="/search" data-search-open aria-label="Search" title="Search"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M15.4 15.4 20.5 20.5"/><path d="M7.6 9.3A4.3 4.3 0 0 1 9.9 7.1" stroke-width="1.4"/></svg><span class="btn-token">/find</span></a><button type="button" class="icon-btn" data-theme-toggle data-theme-words="dark|light" aria-label="Theme" title="Theme" aria-haspopup="true" aria-expanded="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M5.3 18.7l2.1-2.1"/></svg><span class="btn-token">dark</span></button><button type="button" class="icon-btn" data-palettes="mono:Mono|sepia:Sepia|forest:Forest|ocean:Ocean|scifi:Sci-Fi|amber:Amber" data-palette-default="mono" aria-label="Palette" title="Palette" aria-haspopup="true" aria-expanded="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2c5 0 8.8 3.4 8.8 7.6 0 2.6-2 3.6-3.6 3.6h-1.6c-1.2 0-2.1.9-2.1 2 0 .5.2 1 .5 1.4.3.4.5.8.5 1.3 0 1-.8 1.7-2 1.7-4.8 0-8.8-3.9-8.8-8.8S7.2 3.2 12 3.2Z"/><circle cx="8.2" cy="9.2" r="1.25" fill="currentColor" stroke="none"/><circle cx="13.4" cy="7.4" r="1.25" fill="currentColor" stroke="none"/><circle cx="16.8" cy="10.6" r="1.25" fill="currentColor" stroke="none"/></svg><span class="btn-token">hue</span></button><button type="button" class="icon-btn" data-grid-toggle aria-pressed="false" aria-label="Grid view"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></svg><span class="btn-token">grid</span></button><button type="button" class="icon-btn rail-toggle" data-rail-toggle aria-expanded="false" aria-label="Menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5h16M4 12h16M4 17.5h13"/></svg><span class="btn-token">menu</span></button></div></div>
+</header>
+<div class="with-rail"><main id="content">
+${props.content}
+${props.rail || ''}
+</main></div>
+<footer class="site"><p class="footer-text">© 2026 Quire Ink · <a href="https://quireink.com" rel="noopener">powered by Quire Ink</a></p></footer>
+</div>
+<script src="/assets/core.2p6tjc3qag.js" defer></script>
+${props.isArticle ? '<script src="/assets/post.35r2vd4txw.js" defer></script>' : ''}
 </body>
 </html>`
 }
 
 // 1. Home listing
 app.get('/', async (c) => {
-  const { results } = await c.env.DB.prepare(`
-    SELECT slug, title, date, excerpt, reading_minutes, series
+  const { results: posts } = await c.env.DB.prepare(`
+    SELECT slug, title, date, excerpt, reading_minutes, series, cover_image, featured_image
     FROM posts
     WHERE status = 'published' AND deleted_at IS NULL
     ORDER BY date DESC
   `).all<Post>()
 
-  const listHtml = html`
-    <div class="posts-list">
-      ${results.map((p) => html`
-        <div class="post-item">
-          <h2><a href="/${p.slug}">${p.title}</a></h2>
-          <div class="post-meta">
-            <time>${formatDate(p.date)}</time>
-            ${p.reading_minutes ? html` · <span>${p.reading_minutes} phút đọc</span>` : ''}
-            ${p.series ? html` · <span>Chuyên mục: <strong>${p.series}</strong></span>` : ''}
-          </div>
-          ${p.excerpt ? html`<p class="post-excerpt">${p.excerpt}</p>` : ''}
-        </div>
-      `)}
-    </div>
-  `
+  const { results: categories } = await c.env.DB.prepare(`
+    SELECT term, count(*) as count FROM post_terms
+    WHERE kind = 'category'
+    GROUP BY term ORDER BY count DESC LIMIT 10
+  `).all<{ term: string; count: number }>()
 
-  return c.html(Layout({ title: 'Quire Ink', children: listHtml }))
+  const { results: tags } = await c.env.DB.prepare(`
+    SELECT term, count(*) as count FROM post_terms
+    WHERE kind = 'tag'
+    GROUP BY term ORDER BY count DESC LIMIT 30
+  `).all<{ term: string; count: number }>()
+
+  const { results: seriesList } = await c.env.DB.prepare(`
+    SELECT series, count(*) as count FROM posts
+    WHERE series IS NOT NULL AND status = 'published' AND deleted_at IS NULL
+    GROUP BY series ORDER BY count DESC
+  `).all<{ series: string; count: number }>()
+
+  let postArticles = ''
+  posts.forEach((p, index) => {
+    const isLead = index === 0
+    const cat = p.series || 'Articles'
+    const readMin = p.reading_minutes || Math.ceil((p.excerpt?.length || 500) / 100)
+    const formattedDate = formatDisplayDate(p.date)
+    const dateIso = new Date(p.date).toISOString()
+
+    postArticles += `
+<article class="reveal"${isLead ? ' data-lead' : ''}>
+<p class="t-small text-meta"><a class="link-accent" href="/category/${encodeURIComponent(cat.toLowerCase())}">${escapeHtml(cat)}</a> · <time class="meta-part" datetime="${dateIso}">${formattedDate}</time> · <span class="meta-part"><span class="num">${readMin}</span> min read</span></p>
+<${isLead ? 'h1' : 'h2'} class="reading-font mt-2 ${isLead ? 'fs-h1' : 'fs-h2'} font-semibold" lang="vi"><a class="link-accent" href="/${p.slug}">${escapeHtml(p.title)}</a></${isLead ? 'h1' : 'h2'}>
+${p.excerpt ? `<p class="reading-font mt-3 t-body text-text" lang="vi">${escapeHtml(p.excerpt)}</p>` : ''}
+</article>
+`
+  })
+
+  let railHtml = `
+<aside class="rail"><div class="rail-inner">
+<div><h2>Most viewed</h2><ul style="--count-w:1ch">
+${posts.slice(0, 3).map(p => `<li><a class="rail-row link-accent t-small" href="/${p.slug}"><span>${escapeHtml(p.title)}</span></a></li>`).join('')}
+</ul></div>
+${categories.length > 0 ? `<div><h2>Categories</h2><div class="rail-tags">${categories.map(c => `<a class="link-accent t-small" href="/category/${encodeURIComponent(c.term.toLowerCase())}">${escapeHtml(c.term)}<span class="term-count">${c.count}</span></a>`).join('')}</div></div>` : ''}
+${seriesList.length > 0 ? `<div><h2>Series</h2><div class="rail-tags">${seriesList.map(s => `<a class="link-accent t-small" href="/series/${encodeURIComponent(s.series.toLowerCase())}">${escapeHtml(s.series)}<span class="term-count">${s.count}</span></a>`).join('')}</div></div>` : ''}
+<div><h2>Tags</h2><div class="rail-tags lower">${tags.map(t => `<a class="link-accent t-small" href="/tag/${encodeURIComponent(t.term.toLowerCase())}">${escapeHtml(t.term)}</a>`).join('')}</div></div>
+</div></aside>
+`
+
+  const listContent = `<div class="post-list">${postArticles}</div>`
+  return c.html(renderShell({
+    title: 'Quire Ink',
+    description: 'Resonance Calendar — Tri thức & Công nghệ',
+    canonical: 'https://rc.gogl.be/',
+    content: listContent,
+    rail: railHtml
+  }))
 })
 
 // 2. RSS Feed
@@ -242,7 +229,7 @@ app.get('/feed.xml', async (c) => {
   return c.body(rssXml)
 })
 
-// 3. Search Route
+// 3. Search Page
 app.get('/search', async (c) => {
   const q = c.req.query('q')?.trim()
   let results: Post[] = []
@@ -259,37 +246,41 @@ app.get('/search', async (c) => {
     results = res.results
   }
 
-  const searchHtml = html`
-    <div>
-      <h1 style="font-size:1.75rem;margin-bottom:1.5rem;">Tìm kiếm bài viết</h1>
-      <form method="GET" action="/search" style="margin-bottom:2rem;">
-        <input type="text" name="q" value="${q || ''}" placeholder="Nhập từ khóa tìm kiếm..." 
-          style="width:100%;max-width:400px;padding:0.6rem 0.8rem;font-size:1rem;border:1px solid var(--c-rule);border-radius:4px;box-sizing:border-box;">
-        <button type="submit" style="padding:0.6rem 1.2rem;font-size:1rem;background:var(--c-heading);color:var(--c-bg);border:none;border-radius:4px;cursor:pointer;margin-left:0.5rem;">Tìm</button>
-      </form>
+  const searchContent = `
+<div class="search-wrap">
+  <h1 class="reading-font fs-h1 font-semibold" style="margin-bottom:1.5rem;">Search</h1>
+  <form method="GET" action="/search" style="margin-bottom:2rem;display:flex;gap:0.5rem;">
+    <input type="text" name="q" value="${escapeHtml(q || '')}" placeholder="Type to search posts..." 
+      style="width:100%;max-width:400px;padding:0.6rem 0.8rem;font-size:1rem;border:1px solid var(--c-rule);border-radius:var(--radius);background:var(--c-bg);color:var(--c-text);">
+    <button type="submit" class="icon-btn" style="padding:0.6rem 1.2rem;border-radius:var(--radius);background:var(--c-heading);color:var(--c-bg);border:none;cursor:pointer;">Search</button>
+  </form>
 
-      ${q ? html`
-        <p style="color:var(--c-meta);margin-bottom:1.5rem;">Tìm thấy ${results.length} kết quả cho "<strong>${q}</strong>":</p>
-        <div class="posts-list">
-          ${results.map((p) => html`
-            <div class="post-item">
-              <h2><a href="/${p.slug}">${p.title}</a></h2>
-              <div class="post-meta"><time>${formatDate(p.date)}</time></div>
-              ${p.excerpt ? html`<p class="post-excerpt">${p.excerpt}</p>` : ''}
-            </div>
-          `)}
-        </div>
-      ` : ''}
+  ${q ? `
+    <p class="t-small text-meta" style="margin-bottom:1.5rem;">Found ${results.length} result(s) for "<strong>${escapeHtml(q)}</strong>":</p>
+    <div class="post-list">
+      ${results.map((p) => `
+        <article class="reveal">
+          <p class="t-small text-meta"><time>${formatDisplayDate(p.date)}</time></p>
+          <h2 class="reading-font mt-2 fs-h2 font-semibold"><a class="link-accent" href="/${p.slug}">${escapeHtml(p.title)}</a></h2>
+          ${p.excerpt ? `<p class="reading-font mt-3 t-body text-text">${escapeHtml(p.excerpt)}</p>` : ''}
+        </article>
+      `).join('')}
     </div>
-  `
+  ` : ''}
+</div>
+`
 
-  return c.html(Layout({ title: 'Tìm kiếm', children: searchHtml }))
+  return c.html(renderShell({
+    title: 'Search',
+    canonical: 'https://rc.gogl.be/search',
+    content: searchContent
+  }))
 })
 
-// 4. API Direct Publish (dành cho Web Clipper / Agent đẩy trực tiếp vào D1)
+// 4. API Direct Publish
 app.post('/api/publish', async (c) => {
   const authHeader = c.req.header('Authorization')
-  const secret = c.env.API_SECRET || 'goglbe-super-secret'
+  const secret = c.env.API_SECRET || 'goglbe-edge-secret-2026'
 
   if (authHeader !== `Bearer ${secret}`) {
     return c.json({ ok: false, error: 'Unauthorized' }, 401)
@@ -314,7 +305,7 @@ app.post('/api/publish', async (c) => {
   return c.json({ ok: true, slug, url: `https://rc.gogl.be/${slug}` })
 })
 
-// 5. Post details (catch-all by slug)
+// 5. Post details
 app.get('/:slug', async (c) => {
   const slug = c.req.param('slug')
   
@@ -325,31 +316,50 @@ app.get('/:slug', async (c) => {
   `).bind(slug).first<Post>()
 
   if (!post) {
-    return c.html(Layout({
-      title: 'Không tìm thấy bài viết',
-      children: html`<div style="text-align:center;padding:3rem 0;"><h1>404 - Không tìm thấy bài viết</h1><p><a href="/">Quay về trang chủ</a></p></div>`
+    return c.html(renderShell({
+      title: 'Not Found',
+      content: `<div style="text-align:center;padding:4rem 0;"><h1 class="fs-h1 font-semibold">404 - Not Found</h1><p class="mt-3"><a class="link-accent" href="/">Back to home</a></p></div>`
     }), 404)
   }
 
-  const articleHtml = html`
-    <article class="post-full">
-      <h1>${post.title}</h1>
-      <div class="post-meta">
-        <time>${formatDate(post.date)}</time>
-        ${post.reading_minutes ? html` · <span>${post.reading_minutes} phút đọc</span>` : ''}
-        ${post.series ? html` · <span>Chuyên mục: <strong>${post.series}</strong></span>` : ''}
-      </div>
-      <div class="content">
-        ${html([post.content])}
-      </div>
-    </article>
-  `
+  const { results: terms } = await c.env.DB.prepare(`
+    SELECT kind, term FROM post_terms WHERE post_slug = ?
+  `).bind(slug).all<{ kind: string; term: string }>()
 
-  return c.html(Layout({
+  const tags = terms.filter(t => t.kind === 'tag')
+  const categories = terms.filter(t => t.kind === 'category')
+
+  const formattedDate = formatDisplayDate(post.date)
+  const dateIso = new Date(post.date).toISOString()
+  const wordCount = post.content.replace(/<[^>]+>/g, '').split(/\s+/).length
+  const readMin = post.reading_minutes || Math.ceil(wordCount / 200)
+
+  const articleHtml = `
+<article>
+<header>
+<p class="t-small text-meta post-meta"><a class="post-cat link-accent" href="/category/${encodeURIComponent((post.series || 'Articles').toLowerCase())}">${escapeHtml(post.series || 'Articles')}</a> <span class="post-facts"><time datetime="${dateIso}">${formattedDate}</time> · <span class="num">${wordCount.toLocaleString()}</span> words · <span class="num">${readMin}</span> min read<span class="meta-book"> · <button type="button" class="book-mode-toggle" data-book-open>Book mode</button></span></span></p>
+<h1 class="reading-font mt-2 fs-h1 font-semibold">${escapeHtml(post.title)}</h1>
+${post.excerpt ? `<p class="deck">${escapeHtml(post.excerpt)}</p>` : ''}
+</header>
+<aside class="post-info t-small text-meta">
+<p><time datetime="${dateIso}">${formattedDate}</time></p>
+<p><span class="num">${wordCount.toLocaleString()}</span> words · <span class="num">${readMin}</span> min read</p>
+${tags.length > 0 ? `<p class="info-terms">Tag: <span class="term-list">${tags.map(t => `<a class="link-accent lower" href="/tag/${encodeURIComponent(t.term.toLowerCase())}">${escapeHtml(t.term)}</a>`).join(', ')}</span></p>` : ''}
+${categories.length > 0 ? `<p class="info-terms">Category: <span class="term-list">${categories.map(c => `<a class="link-accent" href="/category/${encodeURIComponent(c.term.toLowerCase())}">${escapeHtml(c.term)}</a>`).join(', ')}</span></p>` : ''}
+</aside>
+<div id="post-body" class="prose">
+${post.content}
+</div>
+</article>
+`
+
+  return c.html(renderShell({
     title: post.meta_title || post.title,
     description: post.meta_description || post.excerpt || undefined,
     canonical: `https://rc.gogl.be/${post.slug}`,
-    children: articleHtml
+    ogType: 'article',
+    isArticle: true,
+    content: articleHtml
   }))
 })
 
