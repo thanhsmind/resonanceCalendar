@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { marked } from 'marked'
 
 type Bindings = {
   DB: D1Database
@@ -66,6 +67,21 @@ function formatDisplayDate(timestamp: number): string {
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+// Custom Markdown renderer with YouTube embed support
+function renderPostMarkdown(content: string): string {
+  // If it's already HTML (e.g. contains <p> or <div), return as is
+  if (content.trim().startsWith('<') && (content.includes('</p>') || content.includes('</div>'))) {
+    return content
+  }
+
+  // Auto-embed YouTube URLs on their own line
+  let md = content.replace(/(?:^|\n)(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\S*)?(?=\n|$)/g, (match, id) => {
+    return `\n<div class="video-embed"><iframe src="https://www.youtube-nocookie.com/embed/${id}" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>\n`
+  })
+
+  return marked.parse(md, { gfm: true, breaks: true }) as string
 }
 
 // Shell HTML giống hệt Quire Ink gốc
@@ -348,7 +364,7 @@ ${tags.length > 0 ? `<p class="info-terms">Tag: <span class="term-list">${tags.m
 ${categories.length > 0 ? `<p class="info-terms">Category: <span class="term-list">${categories.map(c => `<a class="link-accent" href="/category/${encodeURIComponent(c.term.toLowerCase())}">${escapeHtml(c.term)}</a>`).join(', ')}</span></p>` : ''}
 </aside>
 <div id="post-body" class="prose">
-${post.content}
+${renderPostMarkdown(post.content)}
 </div>
 </article>
 `
