@@ -1,0 +1,19 @@
+name = "rc-goglbe"
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Static Assets (CSS, Fonts, Icons)
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Cloudflare D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "rc-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# Environment Variables
+[vars]
+API_SECRET = "goglbe-edge-secret-2026"
